@@ -1,0 +1,36 @@
+{
+  "name": "@solshift/monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "nx run-many --target=build --all",
+    "dev": "nx run-many --target=dev --all",
+    "test": "nx run-many --target=test --all",
+    "lint": "nx run-many --target=lint --all",
+    "format": "nx format:write",
+    "dep-graph": "nx dep-graph"
+  },
+  "devDependencies": {
+    "@nx/js": "^23.0.2",
+    "@types/node": "^20.0.0",
+    "nx": "^19.0.0",
+    "prettier": "^3.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "@solana/accounts": "^7.0.0",
+    "@solana/addresses": "^7.0.0",
+    "@solana/codecs-numbers": "^7.0.0",
+    "@solana/instructions": "^7.0.0",
+    "@solana/keys": "^7.0.0",
+    "@solana/rpc": "^7.0.0",
+    "@solana/rpc-types": "^7.0.0",
+    "@solana/signers": "^7.0.0",
+    "@solana/transactions": "^7.0.0",
+    "@solana/web3.js": "^1.98.4"
+  }
+}

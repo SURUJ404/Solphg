@@ -1,0 +1,25 @@
+{
+  "name": "solshift-build-service",
+  "version": "0.1.0",
+  "description": "Backend build service that compiles Anchor/Rust programs to SBF and returns program bytecode + IDL",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn src/index.ts"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "cors": "^2.8.5",
+    "uuid": "^9.0.1",
+    "@solana/web3.js": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "ts-node-dev": "^2.0.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/uuid": "^9.0.8",
+    "@types/node": "^20.12.7"
+  }
+}

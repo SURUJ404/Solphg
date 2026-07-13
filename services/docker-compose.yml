@@ -1,0 +1,21 @@
+services:
+  build-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - MAX_CONCURRENT_BUILDS=2
+      - BUILD_TIMEOUT_MS=180000
+    volumes:
+      # Cache cargo registry + target artifacts across builds so repeat
+      # builds don't recompile every dependency from scratch.
+      - cargo-cache:/root/.cargo/registry
+      - build-workspace:/tmp/solshift-builds
+    restart: unless-stopped
+
+volumes:
+  cargo-cache:
+  build-workspace:
