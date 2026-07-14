@@ -1,5 +1,0 @@
-{
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "installCommand": "cd .. && npm install && npm run build --workspace=@solshift/core --workspace=@solshift/engine --workspace=@solshift/shell --workspace=@solshift/plugin-manager && cd apps/playground"
-}
