@@ -20,6 +20,10 @@ jobs:
 
       - run: npm ci
 
+      - name: Install API dependencies
+        working-directory: services/compiler
+        run: npm ci
+
       - name: Build all packages
         run: npm run build
 

@@ -1,4 +1,4 @@
-import express from "express";
+import express, { Request, Response } from "express";
 import cors from "cors";
 import * as fs from "fs/promises";
 import * as path from "path";
@@ -16,11 +16,11 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 
-app.get("/api/health", (_req, res) => {
+app.get("/api/health", (_req: Request, res: Response) => {
   res.json({ status: "ok", activeBuilds, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
 });
 
-app.post("/api/build", async (req, res) => {
+app.post("/api/build", async (req: Request, res: Response) => {
   const body = req.body as BuildRequest;
 
   if (activeBuilds >= MAX_CONCURRENT_BUILDS) {
@@ -42,7 +42,7 @@ app.post("/api/build", async (req, res) => {
   }
 });
 
-app.post("/api/airdrop", async (req, res) => {
+app.post("/api/airdrop", async (req: Request, res: Response) => {
   const { address, amount } = req.body;
   const tmpDir = path.join("/tmp", `airdrop-${uuidv4()}`);
   try {
@@ -63,7 +63,7 @@ app.post("/api/airdrop", async (req, res) => {
   }
 });
 
-app.get("/api/balance/:address", async (req, res) => {
+app.get("/api/balance/:address", async (req: Request, res: Response) => {
   const tmpDir = path.join("/tmp", `balance-${uuidv4()}`);
   try {
     await fs.mkdir(tmpDir, { recursive: true });
@@ -80,7 +80,7 @@ app.get("/api/balance/:address", async (req, res) => {
   }
 });
 
-app.post("/api/deploy", async (req, res) => {
+app.post("/api/deploy", async (req: Request, res: Response) => {
   const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body;
   const tmpDir = path.join("/tmp", `deploy-${uuidv4()}`);
   try {
