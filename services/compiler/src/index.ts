@@ -1,8 +1,11 @@
 import express from "express";
 import cors from "cors";
+import * as fs from "fs/promises";
+import * as path from "path";
 import { execSync } from "child_process";
 import { runBuild } from "./buildService";
 import { BuildRequest } from "./types";
+import { v4 as uuidv4 } from "uuid";
 
 const PORT = Number(process.env.PORT || 8080);
 const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS || 2);
@@ -41,52 +44,88 @@ app.post("/api/build", async (req, res) => {
 
 app.post("/api/airdrop", async (req, res) => {
   const { address, amount } = req.body;
+  const tmpDir = path.join("/tmp", `airdrop-${uuidv4()}`);
   try {
-    const { Connection, PublicKey, LAMPORTS_PER_SOL } = await import("@solana/web3.js");
-    const conn = new Connection("https://api.devnet.solana.com", "confirmed");
-    const sig = await conn.requestAirdrop(new PublicKey(address), amount * LAMPORTS_PER_SOL);
-    await conn.confirmTransaction(sig);
+    await fs.mkdir(tmpDir, { recursive: true });
+    execSync(
+      `solana config set --url https://api.devnet.solana.com --keypair /root/.config/solana/id.json 2>&1`,
+      { cwd: tmpDir, timeout: 10_000 },
+    );
+    const sig = execSync(
+      `solana airdrop ${amount} ${address} --url https://api.devnet.solana.com 2>&1`,
+      { cwd: tmpDir, timeout: 30_000, encoding: "utf8" },
+    ).toString().trim();
     res.json({ signature: sig });
   } catch (err: any) {
-    res.json({ error: err.message });
+    res.json({ error: err.stderr || err.message || String(err) });
+  } finally {
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 });
 
 app.get("/api/balance/:address", async (req, res) => {
+  const tmpDir = path.join("/tmp", `balance-${uuidv4()}`);
   try {
-    const { Connection, PublicKey } = await import("@solana/web3.js");
-    const conn = new Connection("https://api.devnet.solana.com", "confirmed");
-    const balance = await conn.getBalance(new PublicKey(req.params.address));
-    res.json({ balance: balance / 1e9 });
+    await fs.mkdir(tmpDir, { recursive: true });
+    const balance = execSync(
+      `solana balance ${req.params.address} --url https://api.devnet.solana.com 2>&1`,
+      { cwd: tmpDir, timeout: 10_000, encoding: "utf8" },
+    ).toString().trim();
+    const num = parseFloat(balance.replace(" SOL", ""));
+    res.json({ balance: isNaN(num) ? 0 : num });
   } catch (err: any) {
-    res.json({ error: err.message });
+    res.json({ error: err.stderr || err.message || String(err) });
+  } finally {
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 });
 
 app.post("/api/deploy", async (req, res) => {
-  const { bytecodeBase64, authoritySecretKey } = req.body;
+  const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body;
+  const tmpDir = path.join("/tmp", `deploy-${uuidv4()}`);
   try {
-    const { Keypair, Connection, PublicKey, Transaction, SystemProgram } = await import("@solana/web3.js");
-    const authority = Keypair.fromSecretKey(Buffer.from(authoritySecretKey, "hex"));
-    const programKp = Keypair.fromSecretKey(new Uint8Array(Buffer.from(bytecodeBase64, "base64")));
-    const conn = new Connection("https://api.devnet.solana.com", "confirmed");
+    await fs.mkdir(tmpDir, { recursive: true });
 
-    const lamports = await conn.getMinimumBalanceForRentExemption(programKp.secretKey.length);
-    const tx = new Transaction().add(
-      SystemProgram.createAccount({
-        fromPubkey: authority.publicKey,
-        newAccountPubkey: programKp.publicKey,
-        lamports,
-        space: programKp.secretKey.length,
-        programId: new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111"),
-      })
+    const authorityPath = path.join(tmpDir, "authority.json");
+    const programPath = path.join(tmpDir, "program.so");
+    const programKpPath = path.join(tmpDir, "program-kp.json");
+
+    // Write authority keypair
+    const authorityBytes = Buffer.from(authoritySecretKey, "hex");
+    await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
+
+    // Write program binary
+    const soBytes = Buffer.from(bytecodeBase64, "base64");
+    await fs.writeFile(programPath, soBytes);
+
+    // Write program keypair for deterministic address
+    if (programKeypair) {
+      const kpBytes = Buffer.from(programKeypair, "base64");
+      await fs.writeFile(programKpPath, JSON.stringify(Array.from(kpBytes)));
+    }
+
+    // Configure solana CLI
+    execSync(
+      `solana config set --url https://api.devnet.solana.com --keypair ${authorityPath} 2>&1`,
+      { cwd: tmpDir, timeout: 10_000 },
     );
-    tx.feePayer = authority.publicKey;
-    const sig = await conn.sendTransaction(tx, [authority, programKp]);
-    await conn.confirmTransaction(sig);
-    res.json({ signature: sig });
+
+    // Deploy
+    const deployCmd = programKeypair
+      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url https://api.devnet.solana.com 2>&1`
+      : `solana program deploy ${programPath} --keypair ${authorityPath} --url https://api.devnet.solana.com 2>&1`;
+
+    const output = execSync(deployCmd, { cwd: tmpDir, timeout: 120_000, encoding: "utf8" }).toString().trim();
+
+    // Extract program ID from output: "Program Id: <address>"
+    const progIdMatch = output.match(/Program Id:\s*(\w+)/);
+    const programId = progIdMatch ? progIdMatch[1] : undefined;
+
+    res.json({ signature: output, programId });
   } catch (err: any) {
-    res.json({ error: err.message });
+    res.json({ error: err.stderr || err.message || String(err) });
+  } finally {
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 });
 

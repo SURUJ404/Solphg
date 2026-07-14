@@ -23,17 +23,22 @@ export function TerminalPanel({ lines, onCommand }: Props) {
 
   return (
     <div className="terminal-panel">
-      <div className="terminal-header">Terminal</div>
+      <div className="terminal-header">
+        <span className="terminal-tab">Terminal</span>
+      </div>
       <div className="terminal-output">
+        {lines.length === 0 && (
+          <div className="terminal-line system">Type a command or click Build to compile your program.</div>
+        )}
         {lines.map(line => (
           <div key={line.id} className={`terminal-line ${line.type}`}>
-            {line.content}
+            {line.type === 'input' ? `$ ${line.content}` : line.content}
           </div>
         ))}
         <div ref={bottomRef} />
       </div>
       <form className="terminal-input-row" onSubmit={handleSubmit}>
-        <span className="prompt">$</span>
+        <span className="prompt">&gt;</span>
         <input
           type="text"
           value={input}

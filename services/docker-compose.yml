@@ -1,21 +1,38 @@
 services:
+  # Heavy chain-toolchain image — contains Solana SDK, Anchor CLI, platform-tools,
+  # and a fully populated offline cargo registry with patched crates.
+  # Built as a standalone image so the API can spawn sandboxed instances via docker.
+  builder-image:
+    build:
+      context: .
+      dockerfile: builder.Dockerfile
+    image: solphg-builder:latest
+    # This service exists solely to build/publish the image; it exits immediately.
+    entrypoint: ["echo"]
+    command: ["Builder image ready"]
+    restart: "no"
+
+  # Thin API service — receives build requests, writes source to a shared volume,
+  # then spawns a sandboxed builder container to compile the program.
+  # Runs under sysbox-runc for hardware-level isolation (no host kernel sharing).
   build-api:
     build:
       context: .
       dockerfile: Dockerfile
+    image: solphg-api:latest
     ports:
       - "8080:8080"
     environment:
       - PORT=8080
       - MAX_CONCURRENT_BUILDS=2
-      - BUILD_TIMEOUT_MS=180000
+      - BUILD_TIMEOUT_MS=300000
+      # Builder image tag to spawn for each build job
+      - BUILDER_IMAGE=solphg-builder:latest
     volumes:
-      # Cache cargo registry + target artifacts across builds so repeat
-      # builds don't recompile every dependency from scratch.
-      - cargo-cache:/root/.cargo/registry
-      - build-workspace:/tmp/solshift-builds
+      # Shared workspace — API writes source files, builder reads/writes artifacts
+      - /tmp/solshift-builds:/tmp/solshift-builds
+      # Docker socket for spawning builder containers (secure under sysbox-runc)
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
-
-volumes:
-  cargo-cache:
-  build-workspace:
+    depends_on:
+      - builder-image

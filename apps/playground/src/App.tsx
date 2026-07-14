@@ -7,37 +7,79 @@ import { Toolbar } from './components/Toolbar.js'
 import { ProjectManager, ANCHOR_TEMPLATE } from '@solshift/plugin-manager'
 import { CompilerClient } from '@solshift/engine'
 import { TerminalEmulator } from '@solshift/shell'
+import { COMPILER_API_URL } from '@solshift/core'
 import type { SolpgProject, SolpgFile, TerminalLine, WalletState } from '@solshift/core'
 import { loadWallet, saveWallet, clearWallet } from '@solshift/core'
+import { LandingPage } from './LandingPage.js'
 import './styles.css'
 
+const apiUrl = (import.meta as any)?.env?.VITE_COMPILER_API_URL || COMPILER_API_URL
 const projectManager = new ProjectManager()
-const compilerClient = new CompilerClient()
+const compilerClient = new CompilerClient(apiUrl)
+
+function FilesIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+    </svg>
+  )
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.35-4.35" />
+    </svg>
+  )
+}
+
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    </svg>
+  )
+}
 
 export function App() {
+  const [showLanding, setShowLanding] = useState(true)
   const [project, setProject] = useState<SolpgProject | null>(null)
   const [activeFile, setActiveFile] = useState<SolpgFile | null>(null)
   const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([])
   const [wallet, setWallet] = useState<WalletState | null>(null)
   const [builtBytecode, setBuiltBytecode] = useState<string | null>(null)
+  const [builtKeypair, setBuiltKeypair] = useState<string | undefined>(undefined)
+  const [isBuilding, setIsBuilding] = useState(false)
+  const [apiConnected, setApiConnected] = useState<boolean | undefined>(undefined)
+  const [activeSidebar, setActiveSidebar] = useState<string>('files')
 
   const terminalRef = useRef<TerminalEmulator | null>(null)
   const buildRef = useRef<() => Promise<void>>(async () => {})
   const deployRef = useRef<() => Promise<void>>(async () => {})
 
   const handleBuild = useCallback(async () => {
-    if (!project) return
+    if (!project || isBuilding) return
+    setIsBuilding(true)
     const msg: TerminalLine = { id: crypto.randomUUID(), content: `Building ${project.name}...`, type: 'system' }
     setTerminalLines(prev => [...prev, msg])
 
+    // Only send .rs source files — API auto-generates Anchor.toml, Cargo.toml, etc.
+    const sourceFiles = project.files
+      .filter(f => f.path.endsWith('.rs'))
+      .map(f => ({ path: f.path, content: f.content }))
     const result = await compilerClient.build({
       programName: project.name,
-      files: project.files.map(f => ({ path: f.path, content: f.content })),
+      files: sourceFiles,
     })
 
     if (result.success) {
       const progId = result.programId ? `\nProgram ID: ${result.programId}` : ''
-      if (result.program) setBuiltBytecode(result.program)
+      if (result.program) {
+        setBuiltBytecode(result.program)
+        setBuiltKeypair(result.programKeypair)
+      }
       const done: TerminalLine = {
         id: crypto.randomUUID(),
         content: `Build complete.${progId}`,
@@ -52,7 +94,8 @@ export function App() {
       }
       setTerminalLines(prev => [...prev, err])
     }
-  }, [project])
+    setIsBuilding(false)
+  }, [project, isBuilding])
 
   const handleDeploy = useCallback(async () => {
     if (!builtBytecode) {
@@ -69,7 +112,7 @@ export function App() {
     const msg: TerminalLine = { id: crypto.randomUUID(), content: 'Deploying program to devnet...', type: 'system' }
     setTerminalLines(prev => [...prev, msg])
 
-    const result = await compilerClient.deploy(builtBytecode, wallet.secretKey)
+    const result = await compilerClient.deploy(builtBytecode, wallet.secretKey, builtKeypair)
     if (result.error) {
       const err: TerminalLine = { id: crypto.randomUUID(), content: `Deploy failed: ${result.error}`, type: 'error' }
       setTerminalLines(prev => [...prev, err])
@@ -81,6 +124,12 @@ export function App() {
 
   buildRef.current = handleBuild
   deployRef.current = handleDeploy
+
+  useEffect(() => {
+    compilerClient.health().then(h => {
+      setApiConnected(!('error' in h))
+    })
+  }, [])
 
   useEffect(() => {
     const existing = projectManager.getAll()
@@ -141,27 +190,82 @@ export function App() {
     setWallet(null)
   }, [])
 
+  if (showLanding) {
+    return <LandingPage onLaunch={() => setShowLanding(false)} />
+  }
+
   return (
     <div className="app">
       <Toolbar
         projectName={project?.name || ''}
         onBuild={handleBuild}
         onDeploy={handleDeploy}
+        isBuilding={isBuilding}
+        apiConnected={apiConnected}
+        apiUrl={apiUrl}
       />
       <div className="main-layout">
-        <aside className="sidebar">
-          <WalletPanel
-            connected={!!wallet}
-            publicKey={wallet?.publicKey ?? ''}
-            onConnect={handleConnect}
-            onDisconnect={handleDisconnect}
-          />
-          <FileExplorer
-            files={project?.files || []}
-            activeFilePath={activeFile?.path || ''}
-            onFileSelect={handleFileSelect}
-          />
-        </aside>
+        <nav className="icon-sidebar">
+          <button
+            className={`icon-btn ${activeSidebar === 'files' ? 'active' : ''}`}
+            onClick={() => setActiveSidebar(activeSidebar === 'files' ? '' : 'files')}
+            title="File Explorer"
+          >
+            <FilesIcon />
+          </button>
+          <button
+            className={`icon-btn ${activeSidebar === 'search' ? 'active' : ''}`}
+            onClick={() => setActiveSidebar(activeSidebar === 'search' ? '' : 'search')}
+            title="Search"
+          >
+            <SearchIcon />
+          </button>
+          <div className="icon-sidebar-spacer" />
+          <div className="icon-sidebar-bottom">
+            <button
+              className={`icon-btn ${activeSidebar === 'settings' ? 'active' : ''}`}
+              onClick={() => setActiveSidebar(activeSidebar === 'settings' ? '' : 'settings')}
+              title="Settings"
+            >
+              <SettingsIcon />
+            </button>
+          </div>
+        </nav>
+        {activeSidebar && (
+          <aside className="side-panel">
+            <div className="side-panel-header">
+              {activeSidebar === 'files' ? 'Explorer' : activeSidebar === 'search' ? 'Search' : 'Settings'}
+            </div>
+            <div className="side-panel-content">
+              {activeSidebar === 'files' ? (
+                <>
+                  <FileExplorer
+                    files={project?.files || []}
+                    activeFilePath={activeFile?.path || ''}
+                    onFileSelect={handleFileSelect}
+                  />
+                  <div className="wallet-section">
+                    <div className="wallet-label">Wallet</div>
+                    <WalletPanel
+                      connected={!!wallet}
+                      publicKey={wallet?.publicKey ?? ''}
+                      onConnect={handleConnect}
+                      onDisconnect={handleDisconnect}
+                    />
+                  </div>
+                </>
+              ) : activeSidebar === 'search' ? (
+                <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
+                  Search coming soon
+                </div>
+              ) : (
+                <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
+                  Settings coming soon
+                </div>
+              )}
+            </div>
+          </aside>
+        )}
         <main className="content">
           <EditorPanel file={activeFile} onChange={handleEditorChange} />
           <TerminalPanel lines={terminalLines} onCommand={handleCommand} />

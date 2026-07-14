@@ -21,7 +21,12 @@ export function EditorPanel({ file, onChange }: Props) {
 
   return (
     <div className="editor-panel">
-      <div className="editor-tab">{file.name}</div>
+      <div className="editor-tabs">
+        <div className="editor-tab active">
+          <span className="tab-icon">·</span>
+          {file.name}
+        </div>
+      </div>
       <Editor
         height="100%"
         language={languageMap[file.language] || 'plaintext'}
@@ -34,6 +39,7 @@ export function EditorPanel({ file, onChange }: Props) {
           lineNumbers: 'on',
           scrollBeyondLastLine: false,
           automaticLayout: true,
+          padding: { top: 8 },
         }}
       />
     </div>

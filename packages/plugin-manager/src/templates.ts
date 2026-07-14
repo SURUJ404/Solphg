@@ -12,7 +12,7 @@ export const ANCHOR_TEMPLATE: ProjectTemplate = {
   files: [
     {
       name: 'lib.rs',
-      path: 'programs/myproject/src/lib.rs',
+      path: 'lib.rs',
       content: `use anchor_lang::prelude::*;
 
 declare_id!("11111111111111111111111111111111");
@@ -117,7 +117,7 @@ export const NATIVE_TEMPLATE: ProjectTemplate = {
   files: [
     {
       name: 'lib.rs',
-      path: 'src/lib.rs',
+      path: 'lib.rs',
       content: `use solana_program::{
     account_info::AccountInfo,
     entrypoint,

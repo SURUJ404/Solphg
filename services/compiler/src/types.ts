@@ -20,5 +20,7 @@ export interface BuildResult {
   idl?: unknown;
   // Program ID generated for this build (from target/deploy/<name>-keypair.json)
   programId?: string;
+  // Base64-encoded program keypair bytes, needed for deployment
+  programKeypair?: string;
   error?: string;
 }

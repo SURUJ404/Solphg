@@ -29,15 +29,17 @@ overflow-checks = true
 }
 
 export function programCargoToml(programName: string): string {
+  const pkgName = programName.replace(/-/g, "_")
   return `[package]
-name = "${programName}"
+name = "${pkgName}"
 version = "0.1.0"
 description = "Created with Solshift"
 edition = "2021"
 
 [lib]
 crate-type = ["cdylib", "lib"]
-name = "${programName}"
+name = "${pkgName}"
+path = "src/lib.rs"
 
 [features]
 no-entrypoint = []
@@ -45,6 +47,7 @@ no-idl = []
 no-log-ix-name = []
 cpi = ["no-entrypoint"]
 default = []
+idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 anchor-lang = "0.30.1"
