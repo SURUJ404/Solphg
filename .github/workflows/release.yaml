@@ -1,0 +1,77 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build & Release
+    strategy:
+      matrix:
+        node: ['20.x']
+        os: [ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build all packages
+        run: npm run build
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Zip frontend build
+        uses: thedoctor0/zip-release@master
+        with:
+          filename: 'playground.zip'
+          path: './apps/playground/dist'
+          exclusions: 'x'
+
+      - name: Upload frontend build
+        id: upload-playground
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: playground.zip
+          asset_name: playground.zip
+          asset_content_type: application/zip
+
+      - name: Zip API build
+        uses: thedoctor0/zip-release@master
+        with:
+          filename: 'compiler-api.zip'
+          path: './services/compiler/dist'
+          exclusions: 'x'
+
+      - name: Upload API build
+        id: upload-api
+        uses: actions/upload-release-asset@v1.0.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: compiler-api.zip
+          asset_name: compiler-api.zip
+          asset_content_type: application/zip
