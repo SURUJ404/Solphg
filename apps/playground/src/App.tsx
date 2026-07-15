@@ -49,6 +49,8 @@ export function App() {
   const [activeFile, setActiveFile] = useState<SolpgFile | null>(null)
   const [terminalLines, setTerminalLines] = useState<TerminalLine[]>([])
   const [wallet, setWallet] = useState<WalletState | null>(null)
+  const [balance, setBalance] = useState<number | null>(null)
+  const [isAirdropping, setIsAirdropping] = useState(false)
   const [builtBytecode, setBuiltBytecode] = useState<string | null>(null)
   const [builtKeypair, setBuiltKeypair] = useState<string | undefined>(undefined)
   const [isBuilding, setIsBuilding] = useState(false)
@@ -122,6 +124,50 @@ export function App() {
     }
   }, [builtBytecode, wallet])
 
+  const fetchBalance = useCallback(async (pubkey: string) => {
+    const result = await compilerClient.getBalance(pubkey)
+    if ('balance' in result) {
+      setBalance(result.balance)
+    }
+  }, [])
+
+  const handleAirdrop = useCallback(async () => {
+    if (!wallet) return
+    setIsAirdropping(true)
+    const msg: TerminalLine = { id: crypto.randomUUID(), content: `Airdropping 2 SOL to ${wallet.publicKey}...`, type: 'system' }
+    setTerminalLines(prev => [...prev, msg])
+    const result = await compilerClient.airdrop(wallet.publicKey, 2)
+    if (result.signature) {
+      const done: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop tx: ${result.signature}`, type: 'output' }
+      setTerminalLines(prev => [...prev, done])
+      await fetchBalance(wallet.publicKey)
+    } else {
+      const err: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop failed: ${result.error}`, type: 'error' }
+      setTerminalLines(prev => [...prev, err])
+    }
+    setIsAirdropping(false)
+  }, [wallet, fetchBalance])
+
+  const handleImport = useCallback(async (secretKeyHex: string) => {
+    try {
+      const mod = await import('@solana/web3.js') as any
+      const Keypair = mod.default?.Keypair ?? mod.Keypair
+      const secretBytes = new Uint8Array(secretKeyHex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)))
+      const kp = Keypair.fromSecretKey(secretBytes)
+      const w: WalletState = {
+        publicKey: kp.publicKey.toBase58(),
+        secretKey: secretKeyHex,
+        connected: true,
+      }
+      saveWallet(w)
+      setWallet(w)
+      await fetchBalance(w.publicKey)
+    } catch {
+      const err: TerminalLine = { id: crypto.randomUUID(), content: 'Import failed: invalid secret key', type: 'error' }
+      setTerminalLines(prev => [...prev, err])
+    }
+  }, [fetchBalance])
+
   buildRef.current = handleBuild
   deployRef.current = handleDeploy
 
@@ -143,7 +189,12 @@ export function App() {
     }
 
     const stored = loadWallet()
-    if (stored) setWallet(stored)
+    if (stored) {
+      setWallet(stored)
+      compilerClient.getBalance(stored.publicKey).then(r => {
+        if ('balance' in r) setBalance(r.balance)
+      })
+    }
 
     const terminal = new TerminalEmulator(compilerClient)
     terminal.setWallet(stored)
@@ -183,7 +234,8 @@ export function App() {
     }
     saveWallet(w)
     setWallet(w)
-  }, [])
+    await fetchBalance(w.publicKey)
+  }, [fetchBalance])
 
   const handleDisconnect = useCallback(() => {
     clearWallet()
@@ -249,8 +301,13 @@ export function App() {
                     <WalletPanel
                       connected={!!wallet}
                       publicKey={wallet?.publicKey ?? ''}
+                      secretKey={wallet?.secretKey ?? ''}
+                      balance={balance}
                       onConnect={handleConnect}
                       onDisconnect={handleDisconnect}
+                      onAirdrop={handleAirdrop}
+                      onImport={handleImport}
+                      isAirdropping={isAirdropping}
                     />
                   </div>
                 </>
