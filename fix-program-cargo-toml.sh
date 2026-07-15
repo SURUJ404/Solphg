@@ -1,0 +1,11 @@
+#!/bin/sh
+cat > /tmp/lockfile-gen2/programs/my_counter/Cargo.toml << 'EOF'
+[package]
+name = "my_counter"
+version = "0.1.0"
+edition = "2021"
+[lib]
+crate-type = ["cdylib", "lib"]
+[dependencies]
+anchor-lang = "0.30.1"
+EOF

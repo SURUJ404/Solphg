@@ -6,17 +6,12 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "nx run-many --target=build --all",
-    "dev": "nx run-many --target=dev --all",
-    "test": "nx run-many --target=test --all",
-    "lint": "nx run-many --target=lint --all",
-    "format": "nx format:write",
-    "dep-graph": "nx dep-graph"
+    "build": "npm run build -w @solshift/core -w @solshift/engine -w @solshift/shell -w @solshift/plugin-manager -w @solshift/integrations && npm run build -w @solshift/playground",
+    "dev": "npm run dev -w @solshift/playground",
+    "clean": "npm run --workspaces --if-present clean"
   },
   "devDependencies": {
-    "@nx/js": "^23.0.2",
     "@types/node": "^20.0.0",
-    "nx": "^19.0.0",
     "prettier": "^3.0.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.5.0"

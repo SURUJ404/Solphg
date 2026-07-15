@@ -1,0 +1,7 @@
+[toolchain]
+anchor_version = "0.30.1"
+[programs.localnet]
+test = "11111111111111111111111111111111"
+[provider]
+cluster = "localnet"
+wallet = "/root/.config/solana/id.json"
