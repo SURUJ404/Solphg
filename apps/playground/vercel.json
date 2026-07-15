@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm --prefix ../.. install && npm --prefix ../.. run build -w @solshift/core -w @solshift/engine -w @solshift/shell -w @solshift/plugin-manager -w @solshift/integrations && npm run build",
+  "outputDirectory": "dist",
+  "installCommand": ""
+}
