@@ -1,5 +1,5 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "apps/playground/dist",
+  "outputDirectory": "dist",
   "installCommand": "npm install"
 }
