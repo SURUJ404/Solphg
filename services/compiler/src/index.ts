@@ -57,7 +57,7 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
     ).toString().trim();
     res.json({ signature: sig });
   } catch (err: any) {
-    const msg = err.stdout || err.stderr || err.message || String(err);
+    const msg = err.stderr || err.stdout || err.message || String(err);
     res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -75,7 +75,7 @@ app.get("/api/balance/:address", async (req: Request, res: Response) => {
     const num = parseFloat(balance.replace(" SOL", ""));
     res.json({ balance: isNaN(num) ? 0 : num });
   } catch (err: any) {
-    const msg = err.stdout || err.stderr || err.message || String(err);
+    const msg = err.stderr || err.stdout || err.message || String(err);
     res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
@@ -125,7 +125,7 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
 
     res.json({ signature: output, programId });
   } catch (err: any) {
-    const msg = err.stdout || err.stderr || err.message || String(err);
+    const msg = err.stderr || err.stdout || err.message || String(err);
     res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
