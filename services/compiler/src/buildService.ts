@@ -6,6 +6,7 @@ import { BuildRequest, BuildResult } from "./types";
 import { anchorToml, workspaceCargoToml, programCargoToml } from "./templates";
 
 const BUILD_ROOT = process.env.BUILD_ROOT || "/tmp/solshift-builds";
+const CARGO_TARGET_DIR = path.join(BUILD_ROOT, "cargo-target");
 const BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS || 300_000);
 const MAX_FILES = 40;
 const MAX_FILE_BYTES = 200_000;
@@ -73,6 +74,7 @@ export async function runBuild(req: BuildRequest): Promise<BuildResult> {
     const programDir = path.join(projectDir, "programs", req.programName);
     const srcDir = path.join(programDir, "src");
     await fs.mkdir(srcDir, { recursive: true });
+    await fs.mkdir(CARGO_TARGET_DIR, { recursive: true });
 
     for (const file of req.files) {
       const dest = path.join(srcDir, file.path);
@@ -105,18 +107,22 @@ export async function runBuild(req: BuildRequest): Promise<BuildResult> {
     const downgradeResult = runLocal("sed -i 's/^version = 4$/version = 3/' Cargo.lock && head -5 Cargo.lock", projectDir, 10_000);
     logs += downgradeResult.output;
 
-    // Build
+    // Build (use persistent CARGO_TARGET_DIR for incremental compilation)
     logs += "=== build-sbf ===\n";
-    const buildResult = runLocal("cargo build-sbf -- --offline 2>&1", projectDir, BUILD_TIMEOUT_MS);
+    const buildResult = runLocal(
+      `CARGO_TARGET_DIR=${CARGO_TARGET_DIR} cargo build-sbf -- --offline 2>&1`,
+      projectDir,
+      BUILD_TIMEOUT_MS,
+    );
     logs += buildResult.output;
 
     if (buildResult.code !== 0) {
       return { success: false, logs, error: `build exited with code ${buildResult.code}` };
     }
 
-    // Read artifacts
-    const soPath = path.join(projectDir, "target", "deploy", `${pkgName}.so`);
-    const kpPath = path.join(projectDir, "target", "deploy", `${pkgName}-keypair.json`);
+    // Read artifacts (from persistent CARGO_TARGET_DIR)
+    const soPath = path.join(CARGO_TARGET_DIR, "deploy", `${pkgName}.so`);
+    const kpPath = path.join(CARGO_TARGET_DIR, "deploy", `${pkgName}-keypair.json`);
 
     const soBuf = await fs.readFile(soPath);
     let idl: any = undefined;

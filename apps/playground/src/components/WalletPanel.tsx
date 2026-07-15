@@ -50,7 +50,7 @@ export function WalletPanel({ connected, publicKey, secretKey, balance, onConnec
             />
             <button
               className="btn btn-secondary"
-              onClick={() => { onImport(importKey); setImportKey(''); setShowImport(false) }}
+              onClick={() => { onImport(importKey.trim()); setImportKey(''); setShowImport(false) }}
               disabled={!importKey.trim()}
               style={{ width: '100%', marginTop: 4, fontSize: 11 }}
             >
