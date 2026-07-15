@@ -4,7 +4,7 @@ export const SOLPG_WS_ENDPOINT = 'wss://api.devnet.solana.com/'
 
 export const SOLPG_FAUCET_URL = 'https://faucet.solana.com'
 
-export const COMPILER_API_URL = 'http://localhost:8080'
+export const COMPILER_API_URL = 'https://agile-sparkle-production-83d3.up.railway.app'
 
 export const SBF_LOADER_PROGRAM_ID = 'BPFLoaderUpgradeab1e11111111111111111111111'
 
