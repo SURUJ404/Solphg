@@ -52,12 +52,13 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
       { cwd: tmpDir, timeout: 10_000 },
     );
     const sig = execSync(
-      `solana airdrop ${amount} ${address} --url https://api.devnet.solana.com 2>&1`,
+      `solana airdrop ${amount} ${address} --url https://api.devnet.solana.com`,
       { cwd: tmpDir, timeout: 30_000, encoding: "utf8" },
     ).toString().trim();
     res.json({ signature: sig });
   } catch (err: any) {
-    res.json({ error: err.stderr || err.message || String(err) });
+    const msg = err.stdout || err.stderr || err.message || String(err);
+    res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -68,13 +69,14 @@ app.get("/api/balance/:address", async (req: Request, res: Response) => {
   try {
     await fs.mkdir(tmpDir, { recursive: true });
     const balance = execSync(
-      `solana balance ${req.params.address} --url https://api.devnet.solana.com 2>&1`,
+      `solana balance ${req.params.address} --url https://api.devnet.solana.com`,
       { cwd: tmpDir, timeout: 10_000, encoding: "utf8" },
     ).toString().trim();
     const num = parseFloat(balance.replace(" SOL", ""));
     res.json({ balance: isNaN(num) ? 0 : num });
   } catch (err: any) {
-    res.json({ error: err.stderr || err.message || String(err) });
+    const msg = err.stdout || err.stderr || err.message || String(err);
+    res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -123,7 +125,8 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
 
     res.json({ signature: output, programId });
   } catch (err: any) {
-    res.json({ error: err.stderr || err.message || String(err) });
+    const msg = err.stdout || err.stderr || err.message || String(err);
+    res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
