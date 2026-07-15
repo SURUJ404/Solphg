@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: { port: 3000 },
-  build: { target: 'esnext', outDir: '../../dist' },
+  build: { target: 'esnext', outDir: '../../dist', emptyOutDir: false },
   resolve: {
     dedupe: ['@solana/web3.js'],
   },

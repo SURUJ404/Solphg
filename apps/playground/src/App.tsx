@@ -214,6 +214,10 @@ export function App() {
   const handleEditorChange = useCallback((value: string | undefined) => {
     if (!project || !activeFile || !value) return
     projectManager.updateFile(project.id, activeFile.path, value)
+    setProject(prev => prev ? {
+      ...prev,
+      files: prev.files.map(f => f.path === activeFile.path ? { ...f, content: value } : f),
+    } : null)
     setActiveFile(prev => prev ? { ...prev, content: value } : null)
   }, [project, activeFile])
 
