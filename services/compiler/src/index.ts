@@ -48,22 +48,24 @@ function sleep(ms: number) {
 
 const DEVNET_RPC = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.com";
 
+const AIRDROP_RPC = "https://api.devnet.solana.com";
+
 app.post("/api/airdrop", async (req: Request, res: Response) => {
   const { address, amount } = req.body;
   const tmpDir = path.join("/tmp", `airdrop-${uuidv4()}`);
   try {
     await fs.mkdir(tmpDir, { recursive: true });
     execSync(
-      `solana config set --url ${DEVNET_RPC} --keypair /root/.config/solana/id.json 2>&1`,
+      `solana config set --url ${AIRDROP_RPC} --keypair /root/.config/solana/id.json 2>&1`,
       { cwd: tmpDir, timeout: 10_000 },
     );
 
     let lastErr: any;
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
       try {
         const sig = execSync(
-          `solana airdrop ${amount} ${address} --url ${DEVNET_RPC}`,
-          { cwd: tmpDir, timeout: 30_000, encoding: "utf8" },
+          `solana airdrop ${amount} ${address} --url ${AIRDROP_RPC}`,
+          { cwd: tmpDir, timeout: 60_000, encoding: "utf8" },
         ).toString().trim();
         res.json({ signature: sig });
         return;
@@ -71,7 +73,7 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
         lastErr = err;
         const msg = (err.stderr || err.stdout || err.message || "").toLowerCase();
         if (msg.includes("rate limit")) {
-          const delay = Math.min(2000 * Math.pow(2, attempt), 8000);
+          const delay = Math.min(5000 * Math.pow(2, attempt), 40_000);
           await sleep(delay);
           continue;
         }
