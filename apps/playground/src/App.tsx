@@ -201,9 +201,11 @@ export function App() {
       const mod = await import('@solana/web3.js') as any
       const Keypair = mod.default?.Keypair ?? mod.Keypair
       const kp = Keypair.fromSecretKey(secretBytes)
+      // Normalise to hex so deploy (which expects hex) works regardless of import format
+      const secretHex = Array.from(secretBytes).map(b => b.toString(16).padStart(2, '0')).join('')
       const w: WalletState = {
         publicKey: kp.publicKey.toBase58(),
-        secretKey: trimmed,
+        secretKey: secretHex,
         connected: true,
       }
       saveWallet(w)
