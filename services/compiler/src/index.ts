@@ -47,11 +47,17 @@ function sleep(ms: number) {
 }
 
 const DEVNET_RPC = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.com";
+const FAUCET_SECRET_HEX = process.env.FAUCET_SECRET_KEY || "";
 
 const AIRDROP_RPCS = [
   "https://api.devnet.solana.com",
-  "https://devnet.genesysgo.net",
 ];
+
+function hexToKeypairFile(hex: string): number[] {
+  const buf = Buffer.from(hex, "hex");
+  if (buf.length !== 64) throw new Error(`FAUCET_SECRET_KEY must be 64 bytes (hex), got ${buf.length}`);
+  return Array.from(buf);
+}
 
 app.post("/api/airdrop", async (req: Request, res: Response) => {
   const { address, amount } = req.body;
@@ -59,6 +65,25 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
   try {
     await fs.mkdir(tmpDir, { recursive: true });
 
+    const faucetPath = path.join(tmpDir, "faucet.json");
+    if (FAUCET_SECRET_HEX) {
+      await fs.writeFile(faucetPath, JSON.stringify(hexToKeypairFile(FAUCET_SECRET_HEX)));
+    }
+
+    // Try faucet transfer first (bypasses requestAirdrop rate limits)
+    if (FAUCET_SECRET_HEX) {
+      try {
+        const sig = execSync(
+          `solana transfer --allow-unfunded-recipient --url ${DEVNET_RPC} --keypair ${faucetPath} ${address} ${amount || 2}`,
+          { cwd: tmpDir, timeout: 60_000, encoding: "utf8" },
+        ).toString().trim();
+        const m = sig.match(/Signature:\s*(\w+)/);
+        res.json({ signature: m ? m[1] : sig });
+        return;
+      } catch { /* fall through to airdrop */ }
+    }
+
+    // Fallback: try requestAirdrop (rate-limited, but might work)
     let lastErr: any;
 
     for (const rpcUrl of AIRDROP_RPCS) {
@@ -77,7 +102,7 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
         } catch (err: any) {
           lastErr = err;
           const msg = (err.stderr || err.stdout || err.message || "").toLowerCase();
-          if (msg.includes("rate limit") || msg.includes("429")) {
+          if (msg.includes("rate limit") || msg.includes("429") || msg.includes("airdrop limit")) {
             await sleep(Math.min(5000 * Math.pow(2, attempt), 20_000));
             continue;
           }
@@ -86,8 +111,11 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
       }
     }
 
+    const hint = FAUCET_SECRET_HEX
+      ? "faucet wallet is low on devnet SOL. Fund it via https://faucet.solana.com and try again."
+      : "set FAUCET_SECRET_KEY env var with a funded devnet keypair (hex). Fund it via https://faucet.solana.com";
     const msg = lastErr?.stderr || lastErr?.stdout || lastErr?.message || "airdrop failed";
-    res.json({ error: msg });
+    res.json({ error: `${msg}. ${hint}` });
   } catch (err: any) {
     const msg = err.stderr || err.stdout || err.message || String(err);
     res.json({ error: msg });
