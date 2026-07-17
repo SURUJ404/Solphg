@@ -3,6 +3,7 @@ import cors from "cors";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { execSync } from "child_process";
+import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { runBuild } from "./buildService";
 import { BuildRequest } from "./types";
 import { v4 as uuidv4 } from "uuid";
@@ -48,43 +49,45 @@ function sleep(ms: number) {
 
 const DEVNET_RPC = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.com";
 
-const AIRDROP_RPC = "https://api.devnet.solana.com";
+const AIRDROP_ENDPOINTS = [
+  "https://api.devnet.solana.com",
+  "https://devnet.genesysgo.net",
+];
 
 app.post("/api/airdrop", async (req: Request, res: Response) => {
   const { address, amount } = req.body;
   const tmpDir = path.join("/tmp", `airdrop-${uuidv4()}`);
   try {
     await fs.mkdir(tmpDir, { recursive: true });
-    execSync(
-      `solana config set --url ${AIRDROP_RPC} --keypair /root/.config/solana/id.json 2>&1`,
-      { cwd: tmpDir, timeout: 10_000 },
-    );
 
     let lastErr: any;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const sig = execSync(
-          `solana airdrop ${amount} ${address} --url ${AIRDROP_RPC}`,
-          { cwd: tmpDir, timeout: 60_000, encoding: "utf8" },
-        ).toString().trim();
-        res.json({ signature: sig });
-        return;
-      } catch (err: any) {
-        lastErr = err;
-        const msg = (err.stderr || err.stdout || err.message || "").toLowerCase();
-        if (msg.includes("rate limit")) {
-          const delay = Math.min(5000 * Math.pow(2, attempt), 40_000);
-          await sleep(delay);
-          continue;
+
+    for (const rpcUrl of AIRDROP_ENDPOINTS) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const connection = new Connection(rpcUrl, "confirmed");
+          const sig = await connection.requestAirdrop(
+            address,
+            (amount || 2) * LAMPORTS_PER_SOL,
+          );
+          res.json({ signature: sig });
+          return;
+        } catch (err: any) {
+          lastErr = err;
+          const msg = (err.message || "").toLowerCase();
+          if (msg.includes("rate limit") || msg.includes("429") || msg.includes("too many")) {
+            await sleep(Math.min(5000 * Math.pow(2, attempt), 20_000));
+            continue;
+          }
+          break;
         }
-        break;
       }
     }
 
-    const msg = lastErr?.stderr || lastErr?.stdout || lastErr?.message || "airdrop failed";
+    const msg = lastErr?.message || "airdrop failed";
     res.json({ error: msg });
   } catch (err: any) {
-    const msg = err.stderr || err.stdout || err.message || String(err);
+    const msg = err.message || String(err);
     res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
