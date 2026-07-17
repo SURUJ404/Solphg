@@ -3,7 +3,6 @@ import cors from "cors";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { execSync } from "child_process";
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { runBuild } from "./buildService";
 import { BuildRequest } from "./types";
 import { v4 as uuidv4 } from "uuid";
@@ -49,7 +48,7 @@ function sleep(ms: number) {
 
 const DEVNET_RPC = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.com";
 
-const AIRDROP_ENDPOINTS = [
+const AIRDROP_RPCS = [
   "https://api.devnet.solana.com",
   "https://devnet.genesysgo.net",
 ];
@@ -62,21 +61,23 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
 
     let lastErr: any;
 
-    for (const rpcUrl of AIRDROP_ENDPOINTS) {
+    for (const rpcUrl of AIRDROP_RPCS) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const connection = new Connection(rpcUrl, "confirmed");
-          const pubkey = new PublicKey(address);
-          const sig = await connection.requestAirdrop(
-            pubkey,
-            (amount || 2) * LAMPORTS_PER_SOL,
+          execSync(
+            `solana config set --url ${rpcUrl} --keypair /root/.config/solana/id.json 2>&1`,
+            { cwd: tmpDir, timeout: 10_000 },
           );
+          const sig = execSync(
+            `solana airdrop ${amount || 2} ${address} --url ${rpcUrl}`,
+            { cwd: tmpDir, timeout: 60_000, encoding: "utf8" },
+          ).toString().trim();
           res.json({ signature: sig });
           return;
         } catch (err: any) {
           lastErr = err;
-          const msg = (err.message || "").toLowerCase();
-          if (msg.includes("rate limit") || msg.includes("429") || msg.includes("too many")) {
+          const msg = (err.stderr || err.stdout || err.message || "").toLowerCase();
+          if (msg.includes("rate limit") || msg.includes("429")) {
             await sleep(Math.min(5000 * Math.pow(2, attempt), 20_000));
             continue;
           }
@@ -85,10 +86,10 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
       }
     }
 
-    const msg = lastErr?.message || "airdrop failed";
+    const msg = lastErr?.stderr || lastErr?.stdout || lastErr?.message || "airdrop failed";
     res.json({ error: msg });
   } catch (err: any) {
-    const msg = err.message || String(err);
+    const msg = err.stderr || err.stdout || err.message || String(err);
     res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
