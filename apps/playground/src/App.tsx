@@ -10,6 +10,7 @@ import { TerminalEmulator } from '@solshift/shell'
 import { COMPILER_API_URL } from '@solshift/core'
 import type { SolpgProject, SolpgFile, TerminalLine, WalletState } from '@solshift/core'
 import { loadWallet, saveWallet, clearWallet } from '@solshift/core'
+import { useBrowserWallet } from './useBrowserWallet.js'
 import { LandingPage } from './LandingPage.js'
 import './styles.css'
 
@@ -56,6 +57,9 @@ export function App() {
   const [isBuilding, setIsBuilding] = useState(false)
   const [apiConnected, setApiConnected] = useState<boolean | undefined>(undefined)
   const [activeSidebar, setActiveSidebar] = useState<string>('files')
+
+  // Browser wallet integration (Phantom, Solflare, Backpack)
+  const browserWallet = useBrowserWallet()
 
   const terminalRef = useRef<TerminalEmulator | null>(null)
   const buildRef = useRef<() => Promise<void>>(async () => {})
@@ -148,23 +152,67 @@ export function App() {
     setIsAirdropping(false)
   }, [wallet, fetchBalance])
 
-  const handleImport = useCallback(async (secretKeyHex: string) => {
+  const handleImport = useCallback(async (raw: string) => {
     try {
+      const trimmed = raw.trim()
+      if (!trimmed) {
+        throw new Error('Input is empty')
+      }
+
+      let secretBytes: Uint8Array | null = null
+
+      // Format 1: Hex string (128 hex chars)
+      if (/^[0-9a-fA-F]+$/.test(trimmed)) {
+        if (trimmed.length !== 128) {
+          throw new Error(`Hex key must be 128 characters (64 bytes), got ${trimmed.length}`)
+        }
+        const bytes = new Uint8Array(128 / 2)
+        for (let i = 0; i < 128; i += 2) {
+          bytes[i / 2] = parseInt(trimmed.slice(i, i + 2), 16)
+        }
+        secretBytes = bytes
+      }
+
+      // Format 2: JSON array of numbers (Solana CLI format)
+      if (!secretBytes && trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const arr = JSON.parse(trimmed)
+          if (Array.isArray(arr) && arr.length === 64 && arr.every(n => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= 255)) {
+            secretBytes = new Uint8Array(arr)
+          }
+        } catch {}
+      }
+
+      // Format 3: Base58 encoded secret key
+      if (!secretBytes) {
+        try {
+          const { decode } = await import('bs58') as any
+          const decoded = decode(trimmed)
+          if (decoded.length === 64) {
+            secretBytes = decoded
+          }
+        } catch {}
+      }
+
+      if (!secretBytes) {
+        throw new Error('Unrecognised key format. Supported: 128-char hex, JSON array [12,45,...], or base58 private key')
+      }
+
       const mod = await import('@solana/web3.js') as any
       const Keypair = mod.default?.Keypair ?? mod.Keypair
-      const secretBytes = new Uint8Array(secretKeyHex.match(/.{1,2}/g)!.map(b => parseInt(b, 16)))
       const kp = Keypair.fromSecretKey(secretBytes)
       const w: WalletState = {
         publicKey: kp.publicKey.toBase58(),
-        secretKey: secretKeyHex,
+        secretKey: trimmed,
         connected: true,
       }
       saveWallet(w)
       setWallet(w)
       await fetchBalance(w.publicKey)
-    } catch {
-      const err: TerminalLine = { id: crypto.randomUUID(), content: 'Import failed: invalid secret key', type: 'error' }
-      setTerminalLines(prev => [...prev, err])
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Invalid secret key'
+      const line: TerminalLine = { id: crypto.randomUUID(), content: `Import failed: ${msg}`, type: 'error' }
+      setTerminalLines(prev => [...prev, line])
     }
   }, [fetchBalance])
 
@@ -202,6 +250,18 @@ export function App() {
     terminal.onDeploy(() => deployRef.current())
     terminalRef.current = terminal
   }, [])
+
+  // Sync browser wallet state
+  useEffect(() => {
+    if (browserWallet.connected && browserWallet.publicKey) {
+      setWallet(prev => {
+        if (prev && prev.secretKey) return prev
+        return { publicKey: browserWallet.publicKey, secretKey: '', connected: true }
+      })
+    } else if (!browserWallet.connected && wallet?.secretKey === '') {
+      setWallet(null)
+    }
+  }, [browserWallet.connected, browserWallet.publicKey])
 
   useEffect(() => {
     terminalRef.current?.setWallet(wallet)
@@ -241,10 +301,13 @@ export function App() {
     await fetchBalance(w.publicKey)
   }, [fetchBalance])
 
-  const handleDisconnect = useCallback(() => {
+  const handleDisconnect = useCallback(async () => {
+    if (browserWallet.connected) {
+      await browserWallet.disconnect()
+    }
     clearWallet()
     setWallet(null)
-  }, [])
+  }, [browserWallet.connected, browserWallet.disconnect])
 
   if (showLanding) {
     return <LandingPage onLaunch={() => setShowLanding(false)} />
@@ -312,6 +375,9 @@ export function App() {
                       onAirdrop={handleAirdrop}
                       onImport={handleImport}
                       isAirdropping={isAirdropping}
+                      browserWallets={browserWallet.wallets}
+                      onBrowserWalletConnect={(name) => browserWallet.connect(name)}
+                      onBrowserWalletDisconnect={() => browserWallet.disconnect()}
                     />
                   </div>
                 </>

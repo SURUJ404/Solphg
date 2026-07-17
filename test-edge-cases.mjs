@@ -3,12 +3,30 @@ import { describe, it } from 'node:test'
 
 // --- Mocks ---
 const store = {}
+const sessionStore = {}
 globalThis.localStorage = {
   getItem: k => store[k] ?? null,
   setItem: (k, v) => { store[k] = String(v) },
   removeItem: k => { delete store[k] },
   clear: () => { Object.keys(store).forEach(k => delete store[k]) },
 }
+globalThis.sessionStorage = {
+  getItem: k => sessionStore[k] ?? null,
+  setItem: (k, v) => { sessionStore[k] = String(v) },
+  removeItem: k => { delete sessionStore[k] },
+  clear: () => { Object.keys(sessionStore).forEach(k => delete sessionStore[k]) },
+}
+if (!globalThis.crypto) globalThis.crypto = {}
+if (!globalThis.crypto.getRandomValues) {
+  // Deterministic key for reproducible tests
+  let callCount = 0
+  globalThis.crypto.getRandomValues = (arr) => {
+    for (let i = 0; i < arr.length; i++) arr[i] = (i + callCount) & 0xFF
+    callCount++
+    return arr
+  }
+}
+if (!globalThis.crypto.randomUUID) globalThis.crypto.randomUUID = () => '00000000-0000-0000-0000-000000000000'
 
 globalThis.fetch = async (url, opts) => {
   const body = opts?.body ? JSON.parse(opts.body) : {}
@@ -38,6 +56,8 @@ const INTEGRATIONS = './packages/integrations/dist'
 
 // --- Core: wallet ---
 describe('Core - wallet', async () => {
+  sessionStorage.clear()
+  localStorage.clear()
   const { loadWallet, saveWallet, clearWallet } = await import(`${CORE}/wallet.js`)
 
   it('returns null when empty', () => {
@@ -50,6 +70,16 @@ describe('Core - wallet', async () => {
     assert.deepStrictEqual(loadWallet(), w)
     clearWallet()
     assert.strictEqual(loadWallet(), null)
+  })
+
+  it('stores encrypted (not plaintext)', () => {
+    const w = { publicKey: 'abc', secretKey: 'my-secret-key', connected: true }
+    saveWallet(w)
+    const raw = localStorage.getItem('solpg_wallet')
+    assert.ok(raw, 'should be stored')
+    assert.ok(!raw.includes('my-secret-key'), 'secret should not be plaintext')
+    assert.strictEqual(loadWallet()?.secretKey, 'my-secret-key', 'decrypts correctly')
+    clearWallet()
   })
 
   it('handles corrupted JSON', () => {

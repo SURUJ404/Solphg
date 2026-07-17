@@ -1,5 +1,10 @@
 import React, { useState } from 'react'
 
+interface BrowserWalletInfo {
+  name: string
+  icon: string
+}
+
 interface Props {
   connected: boolean
   publicKey: string
@@ -10,13 +15,17 @@ interface Props {
   onAirdrop: () => void
   onImport: (secretKey: string) => void
   isAirdropping: boolean
+  browserWallets?: BrowserWalletInfo[]
+  onBrowserWalletConnect?: (name: string) => void
+  onBrowserWalletDisconnect?: () => void
 }
 
-export function WalletPanel({ connected, publicKey, secretKey, balance, onConnect, onDisconnect, onAirdrop, onImport, isAirdropping }: Props) {
+export function WalletPanel({ connected, publicKey, secretKey, balance, onConnect, onDisconnect, onAirdrop, onImport, isAirdropping, browserWallets = [], onBrowserWalletConnect, onBrowserWalletDisconnect }: Props) {
   const [copied, setCopied] = useState<'pubkey' | 'secret' | null>(null)
   const [importKey, setImportKey] = useState('')
   const [showImport, setShowImport] = useState(false)
   const [showSecret, setShowSecret] = useState(false)
+  const [showWalletList, setShowWalletList] = useState(false)
 
   const copyToClipboard = async (text: string, type: 'pubkey' | 'secret') => {
     try {
@@ -26,12 +35,44 @@ export function WalletPanel({ connected, publicKey, secretKey, balance, onConnec
     } catch {}
   }
 
+  const isAdapter = connected && !secretKey
+
   if (!connected) {
     return (
       <div className="wallet-panel">
         <button className="btn btn-secondary" onClick={onConnect} style={{ width: '100%' }}>
           Generate Wallet
         </button>
+        <div style={{ position: 'relative' }}>
+          <button
+            className="btn btn-primary"
+            onClick={() => setShowWalletList(!showWalletList)}
+            style={{ width: '100%', marginTop: 6, fontSize: 12 }}
+          >
+            Connect Wallet
+          </button>
+          {showWalletList && browserWallets.length > 0 && (
+            <div style={{ marginTop: 4, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+              {browserWallets.map(w => (
+                <button
+                  key={w.name}
+                  onClick={() => { onBrowserWalletConnect?.(w.name); setShowWalletList(false) }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', border: 'none', background: 'transparent', color: 'var(--text)', fontSize: 12, cursor: 'pointer', textAlign: 'left' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  {w.icon && <img src={w.icon} alt="" style={{ width: 20, height: 20 }} />}
+                  {w.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {showWalletList && browserWallets.length === 0 && (
+            <div style={{ marginTop: 4, padding: '8px 10px', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+              No browser wallet detected. Install Phantom, Solflare, or Backpack.
+            </div>
+          )}
+        </div>
         <button
           className="btn btn-ghost"
           onClick={() => setShowImport(!showImport)}
@@ -43,7 +84,7 @@ export function WalletPanel({ connected, publicKey, secretKey, balance, onConnec
           <div style={{ marginTop: 8 }}>
             <input
               type="text"
-              placeholder="Paste secret key (hex)..."
+              placeholder="Secret key (hex, JSON array, or base58)..."
               value={importKey}
               onChange={e => setImportKey(e.target.value)}
               style={{ width: '100%', boxSizing: 'border-box', fontSize: 11, padding: '4px 6px' }}
@@ -66,7 +107,9 @@ export function WalletPanel({ connected, publicKey, secretKey, balance, onConnec
 
   return (
     <div className="wallet-panel">
-      <div className="wallet-status">Connected</div>
+      <div className="wallet-status">
+        {isAdapter ? 'Wallet Connected' : 'Connected'}
+      </div>
       <div
         className="wallet-address"
         onClick={() => copyToClipboard(publicKey, 'pubkey')}
@@ -83,26 +126,34 @@ export function WalletPanel({ connected, publicKey, secretKey, balance, onConnec
           {isAirdropping ? 'Airdropping...' : 'AirDrop SOL'}
         </button>
       </div>
-      <div className="wallet-secret-section">
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => {
-            if (!showSecret) setShowSecret(true)
-            else copyToClipboard(secretKey, 'secret')
-          }}
-          style={{ fontSize: 11 }}
-        >
-          {copied === 'secret' ? 'Copied!' : (showSecret ? 'Copy Secret Key' : 'Show Secret Key')}
+      {!isAdapter && (
+        <div className="wallet-secret-section">
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => {
+              if (!showSecret) setShowSecret(true)
+              else copyToClipboard(secretKey, 'secret')
+            }}
+            style={{ fontSize: 11 }}
+          >
+            {copied === 'secret' ? 'Copied!' : (showSecret ? 'Copy Secret Key' : 'Show Secret Key')}
+          </button>
+          {showSecret && (
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', wordBreak: 'break-all', marginTop: 4 }}>
+              {secretKey ? `${secretKey.slice(0, 16)}...` : 'Not available'}
+            </div>
+          )}
+        </div>
+      )}
+      {isAdapter ? (
+        <button className="btn btn-secondary" onClick={onBrowserWalletDisconnect} style={{ width: '100%', marginTop: 6 }}>
+          Disconnect Wallet
         </button>
-        {showSecret && (
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', wordBreak: 'break-all', marginTop: 4 }}>
-            {secretKey ? `${secretKey.slice(0, 16)}...` : 'Not available'}
-          </div>
-        )}
-      </div>
-      <button className="btn btn-secondary" onClick={onDisconnect} style={{ width: '100%', marginTop: 6 }}>
-        Disconnect
-      </button>
+      ) : (
+        <button className="btn btn-secondary" onClick={onDisconnect} style={{ width: '100%', marginTop: 6 }}>
+          Disconnect
+        </button>
+      )}
     </div>
   )
 }
