@@ -15,78 +15,97 @@ interface BrowserWalletState {
   disconnect: () => Promise<void>
 }
 
-function detectWallets(): DetectedWallet[] {
+// Track wallet-standard wallets that register via custom event
+let standardWalletsRegistry: any[] = []
+
+function walletToDetected(w: any): DetectedWallet | null {
+  const features = w.features
+  const hasConnect = features && (features.includes('solana:connect') || features['solana:connect'])
+  const hasSign = features && (features.includes('solana:signTransaction') || features['solana:signTransaction'])
+  if (!hasConnect || !hasSign) return null
+  const icon = typeof w.icon === 'string' ? w.icon : ''
+  return {
+    name: w.name,
+    icon,
+    connect: async () => {
+      const connectFeature = features['solana:connect']?.connect || features['solana:connect']
+      if (typeof connectFeature === 'function') {
+        const account = await connectFeature()
+        return account.publicKey
+      }
+      // Legacy: call connect() on the wallet itself
+      const account = await w.connect()
+      return account.publicKey
+    },
+  }
+}
+
+function scanStandardWallets(): DetectedWallet[] {
   const result: DetectedWallet[] = []
 
-  // Detect wallet-standard compliant wallets
-  const standardWallets = (navigator as any)?.wallets
-  if (standardWallets?.get) {
+  // 1) Check navigator.wallets (wallet-standard browser API)
+  const navWallets = (navigator as any)?.wallets
+  if (navWallets?.get) {
     try {
-      const wallets = standardWallets.get()
-      for (const w of wallets) {
-        const features = w.features
-        if (features?.includes('solana:connect') && features?.includes('solana:signTransaction')) {
-          const icon = w.icon
-          result.push({
-            name: w.name,
-            icon: typeof icon === 'string' ? icon : '',
-            connect: async () => {
-              const account = await w.features['solana:connect'].connect()
-              return account.publicKey
-            },
-          })
-        }
+      for (const w of navWallets.get()) {
+        const dw = walletToDetected(w)
+        if (dw) result.push(dw)
       }
     } catch {}
   }
 
-  // Detect legacy window.solana wallets
-  const providers = new Set<string>()
-  const solana = (window as any).solana
-  if (solana?.isPhantom) {
-    const name = 'Phantom'
-    if (!providers.has(name)) {
-      providers.add(name)
-      result.push({
-        name,
-        icon: '',
-        connect: async () => {
-          const resp = await solana.connect()
-          return resp.publicKey.toString()
-        },
-      })
-    }
-  }
-  if (solana?.isSolflare) {
-    const name = 'Solflare'
-    if (!providers.has(name)) {
-      providers.add(name)
-      result.push({
-        name,
-        icon: '',
-        connect: async () => {
-          const resp = await solana.connect()
-          return resp.publicKey.toString()
-        },
-      })
-    }
-  }
-  if (solana?.isBackpack) {
-    const name = 'Backpack'
-    if (!providers.has(name)) {
-      providers.add(name)
-      result.push({
-        name,
-        icon: '',
-        connect: async () => {
-          const resp = await solana.connect()
-          return resp.publicKey.toString()
-        },
-      })
+  // 2) Merge from event-based registry (dedupe by name)
+  for (const w of standardWalletsRegistry) {
+    const dw = walletToDetected(w)
+    if (dw && !result.some(r => r.name === dw.name)) {
+      result.push(dw)
     }
   }
 
   return result
+}
+
+function scanLegacyWallets(): DetectedWallet[] {
+  const result: DetectedWallet[] = []
+  const seen = new Set<string>()
+
+  const add = (name: string, provider: any) => {
+    if (seen.has(name)) return
+    seen.add(name)
+    result.push({
+      name,
+      icon: '',
+      connect: async () => {
+        const resp = await provider.connect()
+        return resp.publicKey.toString()
+      },
+    })
+  }
+
+  const solana = (window as any).solana
+  if (solana) {
+    if (solana.isPhantom) add('Phantom', solana)
+    if (solana.isSolflare) add('Solflare', solana)
+    if (solana.isBackpack) add('Backpack', solana)
+  }
+
+  // Backpack also exposes itself via window.backpack
+  const bp = (window as any).backpack
+  if (bp && bp.connect && !seen.has('Backpack')) {
+    add('Backpack', bp)
+  }
+
+  return result
+}
+
+function detectWallets(): DetectedWallet[] {
+  const standard = scanStandardWallets()
+  const legacy = scanLegacyWallets()
+  const combined = [...standard]
+  for (const w of legacy) {
+    if (!combined.some(c => c.name === w.name)) combined.push(w)
+  }
+  return combined
 }
 
 export function useBrowserWallet(): BrowserWalletState {
@@ -96,11 +115,35 @@ export function useBrowserWallet(): BrowserWalletState {
   const [connecting, setConnecting] = useState(false)
   const connectedRef = useRef(false)
 
-  // Re-detect wallets when window.solana changes (e.g., extension loads after page)
+  // Listen for wallet-standard:register-wallet events
   useEffect(() => {
-    const check = () => setWallets(detectWallets())
+    const onRegister = (event: any) => {
+      const wallet = event.detail
+      if (wallet) {
+        // Remove any existing entry with the same name
+        standardWalletsRegistry = standardWalletsRegistry.filter(w => w.name !== wallet.name)
+        standardWalletsRegistry.push(wallet)
+        setWallets(detectWallets())
+      }
+    }
+    // Catch up with wallets already registered before this listener
+    const already = standardWalletsRegistry.slice()
+    if (already.length > 0) setWallets(detectWallets())
+
+    window.addEventListener('wallet-standard:register-wallet', onRegister)
+    return () => window.removeEventListener('wallet-standard:register-wallet', onRegister)
+  }, [])
+
+  // Poll for late-detected wallets and re-scan on visibility change
+  useEffect(() => {
+    const check = () => {
+      const current = detectWallets()
+      setWallets(prev => {
+        if (JSON.stringify(prev.map(w => w.name)) !== JSON.stringify(current.map(w => w.name))) return current
+        return prev
+      })
+    }
     const interval = setInterval(check, 2000)
-    // Also check on visibility change (user might install extension)
     const onVisible = () => { if (document.visibilityState === 'visible') check() }
     document.addEventListener('visibilitychange', onVisible)
     return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible) }
@@ -138,6 +181,7 @@ export function useBrowserWallet(): BrowserWalletState {
 
   const disconnect = useCallback(async () => {
     try { await (window as any).solana?.disconnect?.() } catch {}
+    try { await (window as any).backpack?.disconnect?.() } catch {}
     setConnected(false)
     setPublicKey('')
     connectedRef.current = false
