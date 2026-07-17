@@ -15,8 +15,19 @@ interface BrowserWalletState {
   disconnect: () => Promise<void>
 }
 
-// Track wallet-standard wallets that register via custom event
+// Track wallet-standard wallets that register via custom event.
+// Module-level listener captures ALL registrations, even before React mounts.
 let standardWalletsRegistry: any[] = []
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('wallet-standard:register-wallet', (event: any) => {
+    const wallet = event.detail
+    if (wallet) {
+      standardWalletsRegistry = standardWalletsRegistry.filter(w => w.name !== wallet.name)
+      standardWalletsRegistry.push(wallet)
+    }
+  })
+}
 
 function walletToDetected(w: any): DetectedWallet | null {
   const features = w.features
@@ -115,23 +126,11 @@ export function useBrowserWallet(): BrowserWalletState {
   const [connecting, setConnecting] = useState(false)
   const connectedRef = useRef(false)
 
-  // Listen for wallet-standard:register-wallet events
+  // Sync module-level registry into React state on mount + changes
   useEffect(() => {
-    const onRegister = (event: any) => {
-      const wallet = event.detail
-      if (wallet) {
-        // Remove any existing entry with the same name
-        standardWalletsRegistry = standardWalletsRegistry.filter(w => w.name !== wallet.name)
-        standardWalletsRegistry.push(wallet)
-        setWallets(detectWallets())
-      }
-    }
-    // Catch up with wallets already registered before this listener
-    const already = standardWalletsRegistry.slice()
-    if (already.length > 0) setWallets(detectWallets())
-
-    window.addEventListener('wallet-standard:register-wallet', onRegister)
-    return () => window.removeEventListener('wallet-standard:register-wallet', onRegister)
+    setWallets(detectWallets())
+    const id = setInterval(() => setWallets(detectWallets()), 1000)
+    return () => clearInterval(id)
   }, [])
 
   // Poll for late-detected wallets and re-scan on visibility change
