@@ -55,6 +55,7 @@ const AIRDROP_RPCS = [
   "https://api.devnet.solana.com",
   "https://solana-devnet.api.onfinality.io/public",
   "https://solana-devnet.gateway.tatum.io",
+  "https://rpc.ankr.com/solana_devnet",
   HELIUS_API_KEY ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : "",
 ].filter(Boolean);
 
