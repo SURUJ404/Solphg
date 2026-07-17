@@ -3,7 +3,7 @@ import cors from "cors";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { execSync } from "child_process";
-import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { runBuild } from "./buildService";
 import { BuildRequest } from "./types";
 import { v4 as uuidv4 } from "uuid";
@@ -66,8 +66,9 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const connection = new Connection(rpcUrl, "confirmed");
+          const pubkey = new PublicKey(address);
           const sig = await connection.requestAirdrop(
-            address,
+            pubkey,
             (amount || 2) * LAMPORTS_PER_SOL,
           );
           res.json({ signature: sig });
