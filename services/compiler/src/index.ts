@@ -48,10 +48,15 @@ function sleep(ms: number) {
 
 const DEVNET_RPC = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.com";
 const FAUCET_SECRET_HEX = process.env.FAUCET_SECRET_KEY || "";
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY || "";
 
 const AIRDROP_RPCS = [
+  DEVNET_RPC,
   "https://api.devnet.solana.com",
-];
+  "https://solana-devnet.api.onfinality.io/public",
+  "https://solana-devnet.gateway.tatum.io",
+  HELIUS_API_KEY ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : "",
+].filter(Boolean);
 
 function hexToKeypairFile(hex: string): number[] {
   const buf = Buffer.from(hex, "hex");
@@ -83,16 +88,14 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
       } catch { /* fall through to airdrop */ }
     }
 
-    // Fallback: try requestAirdrop (rate-limited, but might work)
+    // Fallback: try requestAirdrop across multiple RPC endpoints
+    // Each endpoint has its own daily rate limit, so rotate through them
     let lastErr: any;
+    const shuffled = [...AIRDROP_RPCS].sort(() => Math.random() - 0.5);
 
-    for (const rpcUrl of AIRDROP_RPCS) {
+    for (const rpcUrl of shuffled) {
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          execSync(
-            `solana config set --url ${rpcUrl} --keypair /root/.config/solana/id.json 2>&1`,
-            { cwd: tmpDir, timeout: 10_000 },
-          );
           const sig = execSync(
             `solana airdrop ${amount || 2} ${address} --url ${rpcUrl}`,
             { cwd: tmpDir, timeout: 60_000, encoding: "utf8" },
@@ -102,8 +105,9 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
         } catch (err: any) {
           lastErr = err;
           const msg = (err.stderr || err.stdout || err.message || "").toLowerCase();
-          if (msg.includes("rate limit") || msg.includes("429") || msg.includes("airdrop limit")) {
-            await sleep(Math.min(5000 * Math.pow(2, attempt), 20_000));
+          const isRateLimit = msg.includes("rate limit") || msg.includes("429") || msg.includes("airdrop limit") || msg.includes("too many requests");
+          if (isRateLimit) {
+            await sleep(Math.min(5000 * Math.pow(2, attempt), 30_000));
             continue;
           }
           break;
@@ -112,8 +116,8 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
     }
 
     const hint = FAUCET_SECRET_HEX
-      ? "faucet wallet is low on devnet SOL. Fund it via https://faucet.solana.com and try again."
-      : "set FAUCET_SECRET_KEY env var with a funded devnet keypair (hex). Fund it via https://faucet.solana.com";
+      ? "Faucet wallet is low or all RPC endpoints rate-limited. Fund the faucet at https://faucet.solana.com with address 3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR and try again."
+      : "Set FAUCET_SECRET_KEY env var with a funded devnet keypair (hex). Fund it via https://faucet.solana.com";
     const msg = lastErr?.stderr || lastErr?.stdout || lastErr?.message || "airdrop failed";
     res.json({ error: `${msg}. ${hint}` });
   } catch (err: any) {
