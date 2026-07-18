@@ -72,12 +72,12 @@ export class CompilerClient {
     }
   }
 
-  async deploy(bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string): Promise<{ signature?: string; programId?: string; error?: string }> {
+  async deploy(bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string, cluster?: string): Promise<{ signature?: string; programId?: string; error?: string }> {
     try {
       const res = await fetch(`${this.apiUrl}/api/deploy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bytecodeBase64, authoritySecretKey, programKeypair }),
+        body: JSON.stringify({ bytecodeBase64, authoritySecretKey, programKeypair, cluster }),
       })
       return res.json() as Promise<{ signature?: string; programId?: string; error?: string }>
     } catch {
@@ -85,12 +85,28 @@ export class CompilerClient {
     }
   }
 
-  async airdrop(address: string, amount: number = 2): Promise<{ signature?: string; error?: string }> {
+  async simulate(bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string, cluster?: string): Promise<{
+    success?: boolean; programId?: string; bytecodeSize?: number; estimatedRentSol?: number;
+    authorityBalance?: number; hasSufficientBalance?: boolean; output?: string; error?: string
+  }> {
+    try {
+      const res = await fetch(`${this.apiUrl}/api/simulate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bytecodeBase64, authoritySecretKey, programKeypair, cluster }),
+      })
+      return res.json()
+    } catch {
+      return { error: `Cannot reach build service.` }
+    }
+  }
+
+  async airdrop(address: string, amount: number = 2, cluster?: string): Promise<{ signature?: string; error?: string }> {
     try {
       const res = await fetch(`${this.apiUrl}/api/airdrop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address, amount }),
+        body: JSON.stringify({ address, amount, cluster }),
       })
       return res.json() as Promise<{ signature?: string; error?: string }>
     } catch {
@@ -98,9 +114,10 @@ export class CompilerClient {
     }
   }
 
-  async getBalance(address: string): Promise<{ balance: number } | { error: string }> {
+  async getBalance(address: string, cluster?: string): Promise<{ balance: number } | { error: string }> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/balance/${address}`)
+      const params = cluster ? `?cluster=${cluster}` : ''
+      const res = await fetch(`${this.apiUrl}/api/balance/${address}${params}`)
       return res.json() as Promise<{ balance: number } | { error: string }>
     } catch {
       return { error: `Cannot reach build service at ${this.apiUrl}. Start it with: docker compose up` }

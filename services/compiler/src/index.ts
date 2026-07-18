@@ -13,6 +13,16 @@ const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS || 2);
 
 let activeBuilds = 0;
 
+const CLUSTER_RPCS: Record<string, string> = {
+  devnet: "https://api.devnet.solana.com",
+  testnet: "https://api.testnet.solana.com",
+  "mainnet-beta": "https://api.mainnet-beta.solana.com",
+};
+
+function resolveRpc(cluster?: string): string {
+  return (cluster && CLUSTER_RPCS[cluster]) || CLUSTER_RPCS.devnet;
+}
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "5mb" }));
@@ -196,19 +206,20 @@ app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
 });
 
 app.get("/api/balance/:address", async (req: Request, res: Response) => {
+  const cluster = (req.query.cluster as string) || "devnet";
+  const rpcUrl = resolveRpc(cluster);
   const tmpDir = path.join("/tmp", `balance-${uuidv4()}`);
   try {
     await fs.mkdir(tmpDir, { recursive: true });
     const balance = execSync(
-      `solana balance ${req.params.address} --url https://api.devnet.solana.com`,
+      `solana balance ${req.params.address} --url ${rpcUrl}`,
       { cwd: tmpDir, timeout: 10_000, encoding: "utf8" },
     ).toString().trim();
     const num = parseFloat(balance.replace(" SOL", ""));
     res.json({ balance: isNaN(num) ? 0 : num });
   } catch (err: any) {
-    // Fallback: web3.js balance check
     try {
-      const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+      const connection = new Connection(rpcUrl, "confirmed");
       const pubkey = new PublicKey(req.params.address);
       const lamports = await connection.getBalance(pubkey);
       res.json({ balance: lamports / 1e9 });
@@ -221,8 +232,84 @@ app.get("/api/balance/:address", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/api/simulate", async (req: Request, res: Response) => {
+  const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body;
+  const cluster = (req.body.cluster as string) || "devnet";
+  const rpcUrl = resolveRpc(cluster);
+  const tmpDir = path.join("/tmp", `simulate-${uuidv4()}`);
+  try {
+    await fs.mkdir(tmpDir, { recursive: true });
+
+    const authorityPath = path.join(tmpDir, "authority.json");
+    const programPath = path.join(tmpDir, "program.so");
+    const programKpPath = path.join(tmpDir, "program-kp.json");
+
+    if (!authoritySecretKey || typeof authoritySecretKey !== "string") {
+      return res.json({ error: "authoritySecretKey is required" });
+    }
+    const authorityBytes = Buffer.from(authoritySecretKey, "hex");
+    if (authorityBytes.length !== 64) {
+      return res.json({ error: `authoritySecretKey must be 64 bytes` });
+    }
+    await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
+
+    const soBytes = Buffer.from(bytecodeBase64, "base64");
+    await fs.writeFile(programPath, soBytes);
+
+    if (programKeypair) {
+      const kpBytes = Buffer.from(programKeypair, "base64");
+      await fs.writeFile(programKpPath, JSON.stringify(Array.from(kpBytes)));
+    }
+
+    // Check authority balance first
+    let balance = 0;
+    try {
+      const balOut = execSync(`solana balance ${authorityPath} --url ${rpcUrl}`, { timeout: 10_000, encoding: "utf8" });
+      balance = parseFloat(balOut.toString().trim().replace(" SOL", "")) || 0;
+    } catch {}
+
+    // Simulate deploy — dry run shows rent cost + errors
+    const deployCmd = programKeypair
+      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} --simulate 2>&1`
+      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} --simulate 2>&1`;
+
+    let simulateOutput = "";
+    let simulateError: string | null = null;
+    try {
+      simulateOutput = execSync(deployCmd, { cwd: tmpDir, timeout: 60_000, encoding: "utf8" }).toString().trim();
+    } catch (err: any) {
+      simulateError = err.stderr || err.stdout || err.message || "simulation failed";
+    }
+
+    // Parse program ID from output
+    const progIdMatch = (simulateOutput || simulateError || "").match(/Program Id:\s*(\w+)/);
+    const programId = progIdMatch ? progIdMatch[1] : undefined;
+
+    // Estimate rent cost from bytecode size
+    const bytecodeSize = soBytes.length;
+    const estimatedRent = Math.max(1, Math.ceil(bytecodeSize / (1024 * 1024))) * 0.05; // rough: ~0.05 SOL per MB
+
+    res.json({
+      success: !simulateError,
+      programId,
+      bytecodeSize,
+      estimatedRentSol: estimatedRent,
+      authorityBalance: balance,
+      hasSufficientBalance: balance >= estimatedRent,
+      output: simulateOutput || simulateError,
+    });
+  } catch (err: any) {
+    const msg = err.stderr || err.stdout || err.message || String(err);
+    res.json({ error: msg });
+  } finally {
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 app.post("/api/deploy", async (req: Request, res: Response) => {
   const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body;
+  const cluster = (req.body.cluster as string) || "devnet";
+  const rpcUrl = resolveRpc(cluster);
   const tmpDir = path.join("/tmp", `deploy-${uuidv4()}`);
   try {
     await fs.mkdir(tmpDir, { recursive: true });
@@ -251,16 +338,14 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
       await fs.writeFile(programKpPath, JSON.stringify(Array.from(kpBytes)));
     }
 
-    // Configure solana CLI
     execSync(
-      `solana config set --url https://api.devnet.solana.com --keypair ${authorityPath} 2>&1`,
+      `solana config set --url ${rpcUrl} --keypair ${authorityPath} 2>&1`,
       { cwd: tmpDir, timeout: 10_000 },
     );
 
-    // Deploy
     const deployCmd = programKeypair
-      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url https://api.devnet.solana.com 2>&1`
-      : `solana program deploy ${programPath} --keypair ${authorityPath} --url https://api.devnet.solana.com 2>&1`;
+      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`
+      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`;
 
     const output = execSync(deployCmd, { cwd: tmpDir, timeout: 120_000, encoding: "utf8" }).toString().trim();
 

@@ -6,11 +6,13 @@ import { WalletPanel } from './components/WalletPanel.js'
 import { DocsPanel } from './components/DocsPanel.js'
 import { BuildResult } from './components/BuildResult.js'
 import { Toolbar } from './components/Toolbar.js'
-import { ProjectManager, ANCHOR_TEMPLATE } from '@solshift/plugin-manager'
+import { TemplatePicker } from './components/TemplatePicker.js'
+import { AccountVisualizer } from './components/AccountVisualizer.js'
+import { ProjectManager, ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE } from '@solshift/plugin-manager'
 import { CompilerClient } from '@solshift/engine'
 import { TerminalEmulator } from '@solshift/shell'
-import { COMPILER_API_URL } from '@solshift/core'
-import type { SolpgProject, SolpgFile, TerminalLine, WalletState } from '@solshift/core'
+import { COMPILER_API_URL, CLUSTERS, getCluster } from '@solshift/core'
+import type { SolpgProject, SolpgFile, TerminalLine, WalletState, ClusterConfig } from '@solshift/core'
 import { loadWallet, saveWallet, clearWallet } from '@solshift/core'
 import { useBrowserWallet } from './useBrowserWallet.js'
 import { LandingPage } from './LandingPage.js'
@@ -69,6 +71,10 @@ export function App() {
   const [buildResult, setBuildResult] = useState<{ success: boolean; programId?: string; bytecodeSize?: number; error?: string; logs?: string; timestamp: number } | null>(null)
   const [apiConnected, setApiConnected] = useState<boolean | undefined>(undefined)
   const [activeSidebar, setActiveSidebar] = useState<string>('files')
+  const [cluster, setCluster] = useState<string>(() => localStorage.getItem('solpg_cluster') || 'devnet')
+  const [simulation, setSimulation] = useState<{ success?: boolean; programId?: string; estimatedRentSol?: number; authorityBalance?: number; hasSufficientBalance?: boolean; output?: string; error?: string } | null>(null)
+  const [isSimulating, setIsSimulating] = useState(false)
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
 
   // Browser wallet integration (Phantom, Solflare, Backpack)
   const browserWallet = useBrowserWallet()
@@ -146,7 +152,9 @@ export function App() {
     const msg: TerminalLine = { id: crypto.randomUUID(), content: 'Deploying program to devnet...', type: 'system' }
     setTerminalLines(prev => [...prev, msg])
 
-    const result = await compilerClient.deploy(builtBytecode, wallet.secretKey, builtKeypair)
+    const msg2: TerminalLine = { id: crypto.randomUUID(), content: `Deploying to ${cluster}...`, type: 'system' }
+    setTerminalLines(prev => [...prev, msg2])
+    const result = await compilerClient.deploy(builtBytecode, wallet.secretKey, builtKeypair, cluster)
     if (result.error) {
       const err: TerminalLine = { id: crypto.randomUUID(), content: `Deploy failed: ${result.error}`, type: 'error' }
       setTerminalLines(prev => [...prev, err])
@@ -154,14 +162,53 @@ export function App() {
       const done: TerminalLine = { id: crypto.randomUUID(), content: `Deploy tx: ${result.signature}`, type: 'output' }
       setTerminalLines(prev => [...prev, done])
     }
-  }, [builtBytecode, wallet])
+  }, [builtBytecode, wallet, cluster])
 
-  const fetchBalance = useCallback(async (pubkey: string) => {
-    const result = await compilerClient.getBalance(pubkey)
+  const handleClusterChange = useCallback((name: string) => {
+    setCluster(name)
+    localStorage.setItem('solpg_cluster', name)
+    if (wallet) {
+      fetchBalance(wallet.publicKey, name)
+    }
+  }, [wallet])
+
+  const handleSelectTemplate = useCallback((template: any) => {
+    const p = projectManager.createFromTemplate(template)
+    setProject(p)
+    setActiveFile(p.files[0] || null)
+    setShowTemplatePicker(false)
+    setBuiltBytecode(null)
+    setBuiltKeypair(undefined)
+    setBuildResult(null)
+    setSimulation(null)
+  }, [])
+
+  const handleSimulate = useCallback(async () => {
+    if (!builtBytecode || !wallet || !wallet.secretKey) return
+    setIsSimulating(true)
+    const msg: TerminalLine = { id: crypto.randomUUID(), content: `Simulating deploy on ${cluster}...`, type: 'system' }
+    setTerminalLines(prev => [...prev, msg])
+    const result = await compilerClient.simulate(builtBytecode, wallet.secretKey, builtKeypair, cluster)
+    setSimulation(result)
+    if (result.error) {
+      const err: TerminalLine = { id: crypto.randomUUID(), content: `Simulation failed: ${result.error}`, type: 'error' }
+      setTerminalLines(prev => [...prev, err])
+    } else if (result.success === false) {
+      const err: TerminalLine = { id: crypto.randomUUID(), content: `Simulation issues:\n${result.output}`, type: 'error' }
+      setTerminalLines(prev => [...prev, err])
+    } else {
+      const done: TerminalLine = { id: crypto.randomUUID(), content: `Simulation OK — est. rent: ${result.estimatedRentSol} SOL, balance: ${result.authorityBalance} SOL`, type: 'output' }
+      setTerminalLines(prev => [...prev, done])
+    }
+    setIsSimulating(false)
+  }, [builtBytecode, wallet, builtKeypair, cluster])
+
+  const fetchBalance = useCallback(async (pubkey: string, clusterName?: string) => {
+    const result = await compilerClient.getBalance(pubkey, clusterName || cluster)
     if ('balance' in result) {
       setBalance(result.balance)
     }
-  }, [])
+  }, [cluster])
 
   const handleAirdrop = useCallback(async () => {
     if (!wallet) return
@@ -394,6 +441,8 @@ export function App() {
         isBuilding={isBuilding}
         apiConnected={apiConnected}
         apiUrl={apiUrl}
+        cluster={cluster}
+        onClusterChange={handleClusterChange}
       />
       <div className="main-layout">
         <nav className="icon-sidebar">
@@ -437,6 +486,15 @@ export function App() {
             <div className="side-panel-content">
               {activeSidebar === 'files' ? (
                 <>
+                  <div style={{ padding: '8px 12px' }}>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => setShowTemplatePicker(true)}
+                      style={{ width: '100%', fontSize: 11 }}
+                    >
+                      + New from Template
+                    </button>
+                  </div>
                   <FileExplorer
                     files={project?.files || []}
                     activeFilePath={activeFile?.path || ''}
@@ -476,10 +534,31 @@ export function App() {
         )}
         <main className="content">
           <EditorPanel file={activeFile} onChange={handleEditorChange} />
-          <BuildResult result={buildResult} onDeploy={handleDeploy} hasWallet={!!wallet} />
+          <BuildResult
+            result={buildResult}
+            onDeploy={handleDeploy}
+            onSimulate={handleSimulate}
+            hasWallet={!!wallet}
+            hasSecretKey={!!wallet?.secretKey}
+            simulation={simulation}
+            isSimulating={isSimulating}
+            cluster={cluster}
+          />
           <TerminalPanel lines={terminalLines} onCommand={handleCommand} />
         </main>
       </div>
+      {showTemplatePicker && (
+        <TemplatePicker
+          onSelect={(factory) => {
+            const templates: Record<string, any> = {
+              ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE,
+            }
+            const t = templates[factory]
+            if (t) handleSelectTemplate(t)
+          }}
+          onClose={() => setShowTemplatePicker(false)}
+        />
+      )}
     </div>
   )
 }
