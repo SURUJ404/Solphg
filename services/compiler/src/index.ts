@@ -337,25 +337,34 @@ function parseCpiLogs(logs: string): CpiNode[] {
 
     // Match: Program consumption: Program <id> consumed <n> of <m>
     const cuMatch = line.match(/Program\s+(\w+)\s+consumed\s+(\d+)\s+of\s+(\d+)/)
-    if (cuMatch && stack.length > 0) {
-      stack[stack.length - 1].computeUnits = `${cuMatch[2]} / ${cuMatch[3]}`
+    if (cuMatch) {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].programId === cuMatch[1]) {
+          stack[i].computeUnits = `${cuMatch[2]} / ${cuMatch[3]}`
+          break
+        }
+      }
       continue
     }
 
-    // Match: Program <id> success/failed
-    const resultMatch = line.match(/Program\s+(\w+)\s+(success|failed)/)
-    if (resultMatch && stack.length > 0) {
-      stack[stack.length - 1].success = resultMatch[2] === 'success'
-      stack.pop()
+    // Match: Program <id> success (always plain, no error message)
+    const successMatch = line.match(/Program\s+(\w+)\s+success\b/)
+    if (successMatch && stack.length > 0) {
+      if (stack[stack.length - 1].programId === successMatch[1]) {
+        stack[stack.length - 1].success = true
+        stack.pop()
+      }
       continue
     }
 
-    // Match: failed with error
+    // Match: Program <id> failed: <error message>
     const errMatch = line.match(/Program\s+(\w+)\s+failed:\s*(.+)/)
     if (errMatch && stack.length > 0) {
-      stack[stack.length - 1].success = false
-      stack[stack.length - 1].error = errMatch[2]
-      stack.pop()
+      if (stack[stack.length - 1].programId === errMatch[1]) {
+        stack[stack.length - 1].success = false
+        stack[stack.length - 1].error = errMatch[2].trim()
+        stack.pop()
+      }
       continue
     }
   }
@@ -372,8 +381,10 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
   // Mode 1: Parse provided logs
   if (inputLogs) {
     const parsedTree = parseCpiLogs(inputLogs);
+    const isAllSuccessful = (nodes: CpiNode[]): boolean => nodes.every(n => n.success && isAllSuccessful(n.children));
+    const allSuccess = parsedTree.length === 0 || isAllSuccessful(parsedTree);
     return res.json({
-      success: true,
+      success: allSuccess,
       cpiTree: parsedTree,
       rawLogs: inputLogs.slice(0, 5000),
       summary: {
@@ -473,12 +484,13 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
     }
 
     const parsedTree = parseCpiLogs(simOutput);
+    const isAllSuccessful = (nodes: CpiNode[]): boolean => nodes.every(n => n.success && isAllSuccessful(n.children));
 
     // Cleanup validator
     try { process.kill(-validator.pid); } catch {}
 
     res.json({
-      success: true,
+      success: parsedTree.length === 0 || isAllSuccessful(parsedTree),
       programId,
       cpiTree: parsedTree,
       rawLogs: simOutput.slice(0, 5000),
