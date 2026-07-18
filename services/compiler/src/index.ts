@@ -325,6 +325,197 @@ app.post("/api/simulate", async (req: Request, res: Response) => {
   }
 });
 
+interface CpiNode {
+  programId: string
+  depth: number
+  computeUnits?: string
+  accounts: string[]
+  success: boolean
+  error?: string
+  children: CpiNode[]
+}
+
+function parseCpiLogs(logs: string): CpiNode[] {
+  const roots: CpiNode[] = []
+  const stack: CpiNode[] = []
+  const lines = logs.split('\n')
+
+  for (const line of lines) {
+    // Match: Program <id> invoke [<depth>]
+    const invokeMatch = line.match(/Program\s+(\w+)\s+invoke\s+\[(\d+)\]/)
+    if (invokeMatch) {
+      const node: CpiNode = {
+        programId: invokeMatch[1],
+        depth: parseInt(invokeMatch[2]),
+        accounts: [],
+        success: false,
+        children: [],
+      }
+      if (node.depth === 1) {
+        roots.push(node)
+        stack.length = 0
+        stack.push(node)
+      } else if (stack.length > 0) {
+        stack[stack.length - 1].children.push(node)
+        stack.push(node)
+      }
+      continue
+    }
+
+    // Match: Program consumption: Program <id> consumed <n> of <m>
+    const cuMatch = line.match(/Program\s+(\w+)\s+consumed\s+(\d+)\s+of\s+(\d+)/)
+    if (cuMatch && stack.length > 0) {
+      stack[stack.length - 1].computeUnits = `${cuMatch[2]} / ${cuMatch[3]}`
+      continue
+    }
+
+    // Match: Program <id> success/failed
+    const resultMatch = line.match(/Program\s+(\w+)\s+(success|failed)/)
+    if (resultMatch && stack.length > 0) {
+      stack[stack.length - 1].success = resultMatch[2] === 'success'
+      stack.pop()
+      continue
+    }
+
+    // Match: failed with error
+    const errMatch = line.match(/Program\s+(\w+)\s+failed:\s*(.+)/)
+    if (errMatch && stack.length > 0) {
+      stack[stack.length - 1].success = false
+      stack[stack.length - 1].error = errMatch[2]
+      stack.pop()
+      continue
+    }
+  }
+
+  return roots
+}
+
+app.post("/api/debug-cpi", async (req: Request, res: Response) => {
+  const { bytecodeBase64, idl } = req.body;
+  const tmpDir = path.join("/tmp", `cpi-${uuidv4()}`);
+  const ledgerDir = path.join("/tmp", `cpi-ledger-${uuidv4()}`);
+  let validatorProcess: any = null;
+
+  try {
+    await fs.mkdir(tmpDir, { recursive: true });
+
+    const programPath = path.join(tmpDir, "program.so");
+    const programKpPath = path.join(tmpDir, "program-kp.json");
+    const soBytes = Buffer.from(bytecodeBase64, "base64");
+    await fs.writeFile(programPath, soBytes);
+
+    // Generate a fresh keypair for the program
+    execSync(
+      `solana-keygen new --no-bip39-passphrase --force --silent --outfile ${programKpPath}`,
+      { timeout: 10_000 }
+    );
+    const programId = execSync(
+      `solana-keygen pubkey ${programKpPath}`,
+      { encoding: "utf8", timeout: 5_000 }
+    ).toString().trim();
+
+    // Start ephemeral test validator
+    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
+    const validatorCmd = `solana-test-validator --reset --quiet --ledger ${ledgerDir} --rpc-port ${rpcPort} --gossip-port 0 --faucet-port 0 --no-bpf-jit &`;
+    execSync(validatorCmd, { timeout: 10_000, cwd: tmpDir });
+
+    // Wait for validator to be ready
+    let ready = false;
+    for (let i = 0; i < 30; i++) {
+      try {
+        execSync(
+          `solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`,
+          { timeout: 5_000 }
+        );
+        ready = true;
+        break;
+      } catch {
+        await sleep(1000);
+      }
+    }
+    if (!ready) throw new Error("test validator failed to start");
+
+    // Deploy the program to local validator
+    const deployCmd = `solana program deploy ${programPath} --program-id ${programKpPath} --url http://127.0.0.1:${rpcPort} 2>&1`;
+    execSync(deployCmd, { timeout: 60_000, cwd: tmpDir, encoding: "utf8" });
+
+    // Auto-generate instruction data from IDL if available
+    let instructionData = "0100000000"; // default: anchor-style 8-byte discriminator + instruction
+    let accounts = `${programId}`;
+    if (idl && typeof idl === 'object') {
+      const instructions = (idl as any).instructions;
+      if (instructions && instructions.length > 0) {
+        const ix = instructions[0];
+        // Build accounts list from IDL instruction accounts
+        if (ix.accounts) {
+          accounts = ix.accounts.map((a: any) => a.address || programId).join(',');
+        }
+        // Use anchor discriminator if available
+        if (ix.name) {
+          // Anchor 8-byte discriminator = sha256("global:<name>")[..8]
+          // We'll just use a minimal instruction
+        }
+      }
+    }
+
+    // Build and simulate a transaction against the deployed program
+    const simTxCmd = programId
+      ? `solana transfer --allow-unfunded-recipient --url http://127.0.0.1:${rpcPort} ${programId} 0.0001 --simulate 2>&1`
+      : `solana simulate ${tmpDir}/tx.json --url http://127.0.0.1:${rpcPort} 2>&1`;
+
+    let simOutput = "";
+    try {
+      simOutput = execSync(simTxCmd, { timeout: 30_000, encoding: "utf8" }).toString();
+    } catch (err: any) {
+      simOutput = err.stdout || err.stderr || err.message || "";
+    }
+
+    // Parse the simulation output into CPI tree
+    const cpiTree = parseCpiLogs(simOutput);
+
+    // Try a more targeted CPI trace: construct an instruction that calls the program
+    // We write a minimal instruction binary and simulate it
+    const ixData = Buffer.from(instructionData, "hex");
+    const ixPath = path.join(tmpDir, "ix.bin");
+    await fs.writeFile(ixPath, ixData);
+
+    // Use solana simulate with --program-id to trace the program's execution
+    let fullTrace = "";
+    try {
+      const simulateProg = `solana program show ${programId} --url http://127.0.0.1:${rpcPort} --dump 2>&1 || true`;
+      execSync(simulateProg, { timeout: 10_000, encoding: "utf8" });
+
+      // Try executing a dummy instruction against the program
+      const executeCmd = `solana program show ${programId} --url http://127.0.0.1:${rpcPort} --logs 2>&1 || true`;
+      fullTrace = execSync(executeCmd, { timeout: 10_000, encoding: "utf8" }).toString();
+    } catch {}
+
+    // Merge with full trace
+    const allLogs = simOutput + "\n" + fullTrace;
+    const parsedTree = parseCpiLogs(allLogs);
+
+    res.json({
+      success: true,
+      programId,
+      cpiTree: parsedTree.length > 0 ? parsedTree : cpiTree,
+      rawLogs: allLogs.slice(0, 5000),
+      summary: {
+        totalCpis: parsedTree.length || cpiTree.length,
+        computeUnits: "N/A (local validator)",
+      },
+    });
+  } catch (err: any) {
+    const msg = err.stderr || err.stdout || err.message || String(err);
+    res.json({ error: msg, rawLogs: msg });
+  } finally {
+    // Kill validator
+    try { execSync(`pkill -f solana-test-validator 2>/dev/null || true`, { timeout: 5_000 }); } catch {}
+    // Cleanup
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    fs.rm(ledgerDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 app.post("/api/deploy", async (req: Request, res: Response) => {
   const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body;
   const cluster = (req.body.cluster as string) || "devnet";

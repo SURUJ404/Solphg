@@ -75,6 +75,8 @@ export function App() {
   const [simulation, setSimulation] = useState<{ success?: boolean; programId?: string; estimatedRentSol?: number; authorityBalance?: number; hasSufficientBalance?: boolean; output?: string; error?: string } | null>(null)
   const [isSimulating, setIsSimulating] = useState(false)
   const [showTemplatePicker, setShowTemplatePicker] = useState(false)
+  const [cpiData, setCpiData] = useState<{ cpiTree?: any[]; programId?: string; rawLogs?: string; summary?: any } | null>(null)
+  const [isDebuggingCpi, setIsDebuggingCpi] = useState(false)
 
   // Browser wallet integration (Phantom, Solflare, Backpack)
   const browserWallet = useBrowserWallet()
@@ -202,6 +204,26 @@ export function App() {
     }
     setIsSimulating(false)
   }, [builtBytecode, wallet, builtKeypair, cluster])
+
+  const handleDebugCpi = useCallback(async () => {
+    if (!builtBytecode) return
+    setIsDebuggingCpi(true)
+    const msg: TerminalLine = { id: crypto.randomUUID(), content: `Tracing CPI invocations...`, type: 'system' }
+    setTerminalLines(prev => [...prev, msg])
+    const result = await compilerClient.debugCpi(builtBytecode)
+    setCpiData(result)
+    if (result.error) {
+      const err: TerminalLine = { id: crypto.randomUUID(), content: `CPI trace failed: ${result.error}`, type: 'error' }
+      setTerminalLines(prev => [...prev, err])
+    } else if (result.cpiTree && result.cpiTree.length > 0) {
+      const done: TerminalLine = { id: crypto.randomUUID(), content: `CPI trace: ${result.summary?.totalCpis || 0} invocations found`, type: 'output' }
+      setTerminalLines(prev => [...prev, done])
+    } else {
+      const done: TerminalLine = { id: crypto.randomUUID(), content: `CPI trace complete — no cross-program invocations detected`, type: 'output' }
+      setTerminalLines(prev => [...prev, done])
+    }
+    setIsDebuggingCpi(false)
+  }, [builtBytecode])
 
   const fetchBalance = useCallback(async (pubkey: string, clusterName?: string) => {
     const result = await compilerClient.getBalance(pubkey, clusterName || cluster)
@@ -543,6 +565,12 @@ export function App() {
             simulation={simulation}
             isSimulating={isSimulating}
             cluster={cluster}
+            cpiTree={cpiData?.cpiTree}
+            cpiProgramId={cpiData?.programId}
+            cpiRawLogs={cpiData?.rawLogs}
+            cpiSummary={cpiData?.summary}
+            onDebugCpi={builtBytecode ? handleDebugCpi : undefined}
+            isDebuggingCpi={isDebuggingCpi}
           />
           <TerminalPanel lines={terminalLines} onCommand={handleCommand} />
         </main>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { AccountVisualizer } from './AccountVisualizer.js'
+import { CpiDebugView, CpiLogParser } from './CpiDebugView.js'
 
 interface BuildResultData {
   success: boolean
@@ -29,9 +30,15 @@ interface Props {
   simulation: SimResult | null
   isSimulating: boolean
   cluster: string
+  cpiTree?: any[]
+  cpiProgramId?: string
+  cpiRawLogs?: string
+  cpiSummary?: any
+  onDebugCpi?: () => void
+  isDebuggingCpi?: boolean
 }
 
-export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecretKey, simulation, isSimulating, cluster }: Props) {
+export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecretKey, simulation, isSimulating, cluster, cpiTree, cpiProgramId, cpiRawLogs, cpiSummary, onDebugCpi, isDebuggingCpi }: Props) {
   const [showVisualizer, setShowVisualizer] = useState(false)
   if (!result) return null
 
@@ -97,10 +104,25 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
                   {showVisualizer ? 'Hide Accounts' : 'View Accounts'}
                 </button>
               )}
+              {onDebugCpi && (
+                <button className="btn btn-ghost btn-sm" onClick={onDebugCpi} disabled={isDebuggingCpi} style={{ fontSize: 11 }}>
+                  {isDebuggingCpi ? 'Tracing CPIs...' : 'Trace CPI'}
+                </button>
+              )}
             </div>
 
             {showVisualizer && result.programId && (
               <AccountVisualizer programId={result.programId} cluster={cluster} />
+            )}
+
+            {cpiTree && cpiTree.length > 0 && (
+              <CpiDebugView
+                cpiTree={cpiTree}
+                programId={cpiProgramId}
+                rawLogs={cpiRawLogs}
+                summary={cpiSummary}
+                onClose={() => {}}
+              />
             )}
           </>
         ) : (

@@ -101,6 +101,21 @@ export class CompilerClient {
     }
   }
 
+  async debugCpi(bytecodeBase64: string, idl?: unknown): Promise<{
+    success?: boolean; programId?: string; cpiTree?: any[]; rawLogs?: string; summary?: any; error?: string
+  }> {
+    try {
+      const res = await fetch(`${this.apiUrl}/api/debug-cpi`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bytecodeBase64, idl }),
+      })
+      return res.json()
+    } catch {
+      return { error: 'Cannot reach build service.' }
+    }
+  }
+
   async airdrop(address: string, amount: number = 2, cluster?: string): Promise<{ signature?: string; error?: string }> {
     try {
       const res = await fetch(`${this.apiUrl}/api/airdrop`, {
