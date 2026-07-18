@@ -17,7 +17,7 @@ const codeLines = [
   { text: '}', cls: 'punctuation' },
 ];
 
-export function HeroSection({ onLaunch }: { onLaunch: () => void }) {
+export function HeroSection({ onLaunch, onDocs }: { onLaunch: () => void; onDocs?: () => void }) {
   return (
     <section className="l-hero">
       <div className="l-hero-glow" />
@@ -32,7 +32,7 @@ export function HeroSection({ onLaunch }: { onLaunch: () => void }) {
         <button className="btn-primary" onClick={onLaunch}>
           Launch App →
         </button>
-        <button className="btn-secondary">See Docs</button>
+        <button className="btn-secondary" onClick={onDocs}>See Docs</button>
       </div>
 
       <div className="l-hero-mockup">

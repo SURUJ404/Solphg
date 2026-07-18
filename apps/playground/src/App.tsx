@@ -263,6 +263,18 @@ export function App() {
     terminalRef.current = terminal
   }, [])
 
+  // Open docs tab when URL has #docs
+  useEffect(() => {
+    const checkHash = () => {
+      if (window.location.hash === '#docs') {
+        setActiveSidebar('docs')
+      }
+    }
+    checkHash()
+    window.addEventListener('hashchange', checkHash)
+    return () => window.removeEventListener('hashchange', checkHash)
+  }, [])
+
   // Sync browser wallet state
   useEffect(() => {
     if (browserWallet.connected && browserWallet.publicKey) {

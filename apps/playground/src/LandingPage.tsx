@@ -13,10 +13,14 @@ import { Footer } from "./components/landing/Footer";
 import "./landing.css";
 
 export function LandingPage({ onLaunch }: { onLaunch: () => void }) {
+  const handleDocs = () => {
+    window.location.hash = 'docs'
+    onLaunch()
+  }
   return (
     <div className="landing-page">
-      <Navbar onLaunch={onLaunch} />
-      <HeroSection onLaunch={onLaunch} />
+      <Navbar onLaunch={onLaunch} onDocs={handleDocs} />
+      <HeroSection onLaunch={onLaunch} onDocs={handleDocs} />
       <StatsSection onLaunch={onLaunch} />
       <PartnersSection />
       <BuildFeature />
