@@ -391,10 +391,31 @@ function parseCpiLogs(logs: string): CpiNode[] {
 }
 
 app.post("/api/debug-cpi", async (req: Request, res: Response) => {
-  const { bytecodeBase64, idl } = req.body;
+  // Two modes:
+  // 1) { rawLogs: string } — parse provided logs into CPI tree
+  // 2) { bytecodeBase64, idl } — attempt local validator trace
+  const { bytecodeBase64, rawLogs: inputLogs } = req.body;
+
+  // Mode 1: Parse provided logs
+  if (inputLogs) {
+    const parsedTree = parseCpiLogs(inputLogs);
+    return res.json({
+      success: true,
+      cpiTree: parsedTree,
+      rawLogs: inputLogs.slice(0, 5000),
+      summary: {
+        totalCpis: parsedTree.length,
+        computeUnits: "varies (depends on transaction)",
+      },
+    });
+  }
+
+  // Mode 2: Try local validator (if available)
+  if (!bytecodeBase64) {
+    return res.json({ error: "Provide bytecodeBase64 for auto-trace or rawLogs for log parsing" });
+  }
+
   const tmpDir = path.join("/tmp", `cpi-${uuidv4()}`);
-  const ledgerDir = path.join("/tmp", `cpi-ledger-${uuidv4()}`);
-  let validatorProcess: any = null;
 
   try {
     await fs.mkdir(tmpDir, { recursive: true });
@@ -404,7 +425,6 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
     const soBytes = Buffer.from(bytecodeBase64, "base64");
     await fs.writeFile(programPath, soBytes);
 
-    // Generate a fresh keypair for the program
     execSync(
       `solana-keygen new --no-bip39-passphrase --force --silent --outfile ${programKpPath}`,
       { timeout: 10_000 }
@@ -414,93 +434,93 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
       { encoding: "utf8", timeout: 5_000 }
     ).toString().trim();
 
-    // Start ephemeral test validator
-    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
-    const validatorCmd = `solana-test-validator --reset --quiet --ledger ${ledgerDir} --rpc-port ${rpcPort} --gossip-port 0 --faucet-port 0 --no-bpf-jit &`;
-    execSync(validatorCmd, { timeout: 10_000, cwd: tmpDir });
+    // Check if solana-test-validator is available
+    let hasValidator = false;
+    try {
+      execSync("solana-test-validator --version 2>&1", { timeout: 5_000 });
+      hasValidator = true;
+    } catch {}
 
-    // Wait for validator to be ready
+    if (!hasValidator) {
+      // Fallback: simulate transfer to derive basic CPI info from system program
+      const simOutput = execSync(
+        `solana transfer --allow-unfunded-recipient --url devnet 11111111111111111111111111111111 0.0001 --simulate --dump-transaction-summary 2>&1 || true`,
+        { timeout: 30_000, encoding: "utf8" }
+      ).toString();
+      const parsedTree = parseCpiLogs(simOutput);
+
+      return res.json({
+        success: true,
+        programId,
+        cpiTree: parsedTree,
+        rawLogs: simOutput.slice(0, 5000),
+        summary: {
+          totalCpis: parsedTree.length,
+          computeUnits: "N/A (solana-test-validator not available)",
+        },
+        note: "solana-test-validator not found. CPI trace shows system program reference. Use 'Paste Raw Logs' to analyze actual transaction output.",
+      });
+    }
+
+    // solana-test-validator available — run full trace
+    const ledgerDir = path.join("/tmp", `cpi-ledger-${uuidv4()}`);
+    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
+
+    // Start validator in background using child_process spawn
+    const { spawn } = require("child_process");
+    const validator = spawn("solana-test-validator", [
+      "--reset", "--quiet", `--ledger`, ledgerDir,
+      `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
+    ], { stdio: "ignore", detached: true });
+
+    // Wait for ready
     let ready = false;
     for (let i = 0; i < 30; i++) {
       try {
-        execSync(
-          `solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`,
-          { timeout: 5_000 }
-        );
+        execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 5_000 });
         ready = true;
         break;
-      } catch {
-        await sleep(1000);
-      }
-    }
-    if (!ready) throw new Error("test validator failed to start");
-
-    // Deploy the program to local validator
-    const deployCmd = `solana program deploy ${programPath} --program-id ${programKpPath} --url http://127.0.0.1:${rpcPort} 2>&1`;
-    execSync(deployCmd, { timeout: 60_000, cwd: tmpDir, encoding: "utf8" });
-
-    // Auto-generate instruction data from IDL if available
-    let instructionData = "0100000000"; // default: anchor-style 8-byte discriminator + instruction
-    let accounts = `${programId}`;
-    if (idl && typeof idl === 'object') {
-      const instructions = (idl as any).instructions;
-      if (instructions && instructions.length > 0) {
-        const ix = instructions[0];
-        // Build accounts list from IDL instruction accounts
-        if (ix.accounts) {
-          accounts = ix.accounts.map((a: any) => a.address || programId).join(',');
-        }
-        // Use anchor discriminator if available
-        if (ix.name) {
-          // Anchor 8-byte discriminator = sha256("global:<name>")[..8]
-          // We'll just use a minimal instruction
-        }
-      }
+      } catch { await sleep(1000); }
     }
 
-    // Build and simulate a transaction against the deployed program
-    const simTxCmd = programId
-      ? `solana transfer --allow-unfunded-recipient --url http://127.0.0.1:${rpcPort} ${programId} 0.0001 --simulate 2>&1`
-      : `solana simulate ${tmpDir}/tx.json --url http://127.0.0.1:${rpcPort} 2>&1`;
+    if (!ready) {
+      try { process.kill(-validator.pid); } catch {}
+      throw new Error("test validator failed to start");
+    }
 
+    try {
+      execSync(
+        `solana program deploy ${programPath} --program-id ${programKpPath} --url http://127.0.0.1:${rpcPort} 2>&1`,
+        { timeout: 60_000, cwd: tmpDir, encoding: "utf8" }
+      );
+    } catch (deployErr: any) {
+      try { process.kill(-validator.pid); } catch {}
+      throw new Error(`deploy to local validator failed: ${deployErr.stderr || deployErr.message}`);
+    }
+
+    // Simulate a transaction against the deployed program
     let simOutput = "";
     try {
-      simOutput = execSync(simTxCmd, { timeout: 30_000, encoding: "utf8" }).toString();
+      simOutput = execSync(
+        `solana transfer --allow-unfunded-recipient --url http://127.0.0.1:${rpcPort} ${programId} 0.0001 2>&1`,
+        { timeout: 30_000, encoding: "utf8" }
+      ).toString();
     } catch (err: any) {
       simOutput = err.stdout || err.stderr || err.message || "";
     }
 
-    // Parse the simulation output into CPI tree
-    const cpiTree = parseCpiLogs(simOutput);
+    const parsedTree = parseCpiLogs(simOutput);
 
-    // Try a more targeted CPI trace: construct an instruction that calls the program
-    // We write a minimal instruction binary and simulate it
-    const ixData = Buffer.from(instructionData, "hex");
-    const ixPath = path.join(tmpDir, "ix.bin");
-    await fs.writeFile(ixPath, ixData);
-
-    // Use solana simulate with --program-id to trace the program's execution
-    let fullTrace = "";
-    try {
-      const simulateProg = `solana program show ${programId} --url http://127.0.0.1:${rpcPort} --dump 2>&1 || true`;
-      execSync(simulateProg, { timeout: 10_000, encoding: "utf8" });
-
-      // Try executing a dummy instruction against the program
-      const executeCmd = `solana program show ${programId} --url http://127.0.0.1:${rpcPort} --logs 2>&1 || true`;
-      fullTrace = execSync(executeCmd, { timeout: 10_000, encoding: "utf8" }).toString();
-    } catch {}
-
-    // Merge with full trace
-    const allLogs = simOutput + "\n" + fullTrace;
-    const parsedTree = parseCpiLogs(allLogs);
+    // Cleanup validator
+    try { process.kill(-validator.pid); } catch {}
 
     res.json({
       success: true,
       programId,
-      cpiTree: parsedTree.length > 0 ? parsedTree : cpiTree,
-      rawLogs: allLogs.slice(0, 5000),
+      cpiTree: parsedTree,
+      rawLogs: simOutput.slice(0, 5000),
       summary: {
-        totalCpis: parsedTree.length || cpiTree.length,
+        totalCpis: parsedTree.length,
         computeUnits: "N/A (local validator)",
       },
     });
@@ -508,11 +528,7 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
     const msg = err.stderr || err.stdout || err.message || String(err);
     res.json({ error: msg, rawLogs: msg });
   } finally {
-    // Kill validator
-    try { execSync(`pkill -f solana-test-validator 2>/dev/null || true`, { timeout: 5_000 }); } catch {}
-    // Cleanup
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    fs.rm(ledgerDir, { recursive: true, force: true }).catch(() => {});
   }
 });
 
