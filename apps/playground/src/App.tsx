@@ -4,6 +4,7 @@ import { TerminalPanel } from './components/TerminalPanel.js'
 import { FileExplorer } from './components/FileExplorer.js'
 import { WalletPanel } from './components/WalletPanel.js'
 import { DocsPanel } from './components/DocsPanel.js'
+import { BuildResult } from './components/BuildResult.js'
 import { Toolbar } from './components/Toolbar.js'
 import { ProjectManager, ANCHOR_TEMPLATE } from '@solshift/plugin-manager'
 import { CompilerClient } from '@solshift/engine'
@@ -65,6 +66,7 @@ export function App() {
   const [builtBytecode, setBuiltBytecode] = useState<string | null>(null)
   const [builtKeypair, setBuiltKeypair] = useState<string | undefined>(undefined)
   const [isBuilding, setIsBuilding] = useState(false)
+  const [buildResult, setBuildResult] = useState<{ success: boolean; programId?: string; bytecodeSize?: number; error?: string; logs?: string; timestamp: number } | null>(null)
   const [apiConnected, setApiConnected] = useState<boolean | undefined>(undefined)
   const [activeSidebar, setActiveSidebar] = useState<string>('files')
 
@@ -102,6 +104,12 @@ export function App() {
         type: 'output',
       }
       setTerminalLines(prev => [...prev, done])
+      setBuildResult({
+        success: true,
+        programId: result.programId,
+        bytecodeSize: result.program ? (result.program.length * 3 / 4) : undefined,
+        timestamp: Date.now(),
+      })
     } else {
       const err: TerminalLine = {
         id: crypto.randomUUID(),
@@ -109,6 +117,11 @@ export function App() {
         type: 'error',
       }
       setTerminalLines(prev => [...prev, err])
+      setBuildResult({
+        success: false,
+        error: result.error || result.logs || 'Unknown error',
+        timestamp: Date.now(),
+      })
     }
     setIsBuilding(false)
   }, [project, isBuilding])
@@ -428,6 +441,7 @@ export function App() {
         )}
         <main className="content">
           <EditorPanel file={activeFile} onChange={handleEditorChange} />
+          <BuildResult result={buildResult} onDeploy={handleDeploy} hasWallet={!!wallet} />
           <TerminalPanel lines={terminalLines} onCommand={handleCommand} />
         </main>
       </div>
