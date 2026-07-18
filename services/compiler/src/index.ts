@@ -418,14 +418,34 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
       { encoding: "utf8", timeout: 5_000 }
     ).toString().trim();
 
-    // Check if solana-test-validator is available
-    let hasValidator = false;
+    // Attempt to run full trace on a local validator
+    let validator: any = null;
+    let ready = false;
+    const ledgerDir = path.join("/tmp", `cpi-ledger-${uuidv4()}`);
+    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
+    const killValidator = () => { try { if (validator) { process.kill(-validator.pid); } } catch {} };
+
     try {
-      execSync("solana-test-validator --version 2>&1", { timeout: 5_000 });
-      hasValidator = true;
+      const { spawn } = require("child_process");
+      validator = spawn("solana-test-validator", [
+        "--reset", "--quiet", `--ledger`, ledgerDir,
+        `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
+      ], { stdio: "ignore", detached: true });
+
+      for (let i = 0; i < 5; i++) {
+        await sleep(500);
+        try {
+          execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
+          ready = true;
+          break;
+        } catch {}
+      }
+
+      if (!ready) { killValidator(); }
     } catch {}
 
-    if (!hasValidator) {
+    if (!ready) {
+      killValidator();
       return res.json({
         success: true,
         programId,
@@ -436,39 +456,13 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
       });
     }
 
-    // solana-test-validator available — run full trace
-    const ledgerDir = path.join("/tmp", `cpi-ledger-${uuidv4()}`);
-    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
-
-    // Start validator in background using child_process spawn
-    const { spawn } = require("child_process");
-    const validator = spawn("solana-test-validator", [
-      "--reset", "--quiet", `--ledger`, ledgerDir,
-      `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
-    ], { stdio: "ignore", detached: true });
-
-    // Wait for ready
-    let ready = false;
-    for (let i = 0; i < 30; i++) {
-      try {
-        execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 5_000 });
-        ready = true;
-        break;
-      } catch { await sleep(1000); }
-    }
-
-    if (!ready) {
-      try { process.kill(-validator.pid); } catch {}
-      throw new Error("test validator failed to start");
-    }
-
     try {
       execSync(
         `solana program deploy ${programPath} --program-id ${programKpPath} --url http://127.0.0.1:${rpcPort} 2>&1`,
         { timeout: 60_000, cwd: tmpDir, encoding: "utf8" }
       );
     } catch (deployErr: any) {
-      try { process.kill(-validator.pid); } catch {}
+      killValidator();
       throw new Error(`deploy to local validator failed: ${deployErr.stderr || deployErr.message}`);
     }
 
@@ -486,8 +480,7 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
     const parsedTree = parseCpiLogs(simOutput);
     const isAllSuccessful = (nodes: CpiNode[]): boolean => nodes.every(n => n.success && isAllSuccessful(n.children));
 
-    // Cleanup validator
-    try { process.kill(-validator.pid); } catch {}
+    killValidator();
 
     res.json({
       success: parsedTree.length === 0 || isAllSuccessful(parsedTree),

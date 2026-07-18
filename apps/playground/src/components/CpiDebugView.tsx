@@ -174,10 +174,17 @@ export function CpiLogParser() {
               else if (stack.length > 0) { stack[stack.length - 1].children.push(node); stack.push(node) }
               continue
             }
-            const cuMatch = line.match(/Program\s+\w+\s+consumed\s+(\d+)\s+of\s+(\d+)/)
-            if (cuMatch && stack.length > 0) { stack[stack.length - 1].computeUnits = `${cuMatch[1]} / ${cuMatch[2]}`; continue }
-            const resultMatch = line.match(/Program\s+\w+\s+(success|failed)/)
-            if (resultMatch && stack.length > 0) { stack[stack.length - 1].success = resultMatch[1] === 'success'; stack.pop(); continue }
+            const cuMatch = line.match(/Program\s+(\w+)\s+consumed\s+(\d+)\s+of\s+(\d+)/)
+            if (cuMatch) {
+              for (let i = stack.length - 1; i >= 0; i--) {
+                if (stack[i].programId === cuMatch[1]) { stack[i].computeUnits = `${cuMatch[2]} / ${cuMatch[3]}`; break }
+              }
+              continue
+            }
+            const successMatch = line.match(/Program\s+(\w+)\s+success\b/)
+            if (successMatch && stack.length > 0 && stack[stack.length - 1].programId === successMatch[1]) { stack[stack.length - 1].success = true; stack.pop(); continue }
+            const errMatch = line.match(/Program\s+(\w+)\s+failed:\s*(.+)/)
+            if (errMatch && stack.length > 0 && stack[stack.length - 1].programId === errMatch[1]) { stack[stack.length - 1].success = false; stack[stack.length - 1].error = errMatch[2].trim(); stack.pop(); continue }
           }
           setParsed(roots)
         }}

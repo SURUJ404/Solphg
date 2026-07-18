@@ -115,7 +115,7 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
               <AccountVisualizer programId={result.programId} cluster={cluster} />
             )}
 
-            {cpiTree && cpiTree.length > 0 && (
+            {cpiTree !== undefined && (
               <CpiDebugView
                 cpiTree={cpiTree}
                 programId={cpiProgramId}
