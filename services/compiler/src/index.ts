@@ -127,8 +127,8 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
 });
 
 app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
-  // Generates a fresh keypair and tries to airdrop from Railway's IP
-  // Returns the secret key so the user can fund the faucet wallet
+  // Generates a fresh keypair, airdrops to it from Railway's IP, then
+  // auto-transfers to the faucet wallet (3Lymxu...)
   const tmpDir = path.join("/tmp", `faucet-fund-${uuidv4()}`);
   try {
     await fs.mkdir(tmpDir, { recursive: true });
@@ -139,9 +139,11 @@ app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
 
     for (const rpc of [...rpcs].sort(() => Math.random() - 0.5)) {
       try {
-        const sig = execSync(`solana airdrop 2 ${addr} --url ${rpc}`, { timeout: 60_000, encoding: "utf8" }).toString().trim();
-        const secretHex = Buffer.from(JSON.parse(await fs.readFile(kpPath, "utf8"))).toString("hex");
-        res.json({ address: addr, secretHex, signature: sig, message: "Fund the faucet wallet by transferring SOL from this address" });
+        execSync(`solana airdrop 2 ${addr} --url ${rpc}`, { timeout: 60_000, encoding: "utf8" });
+        const faucetAddr = "3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR";
+        execSync(`solana transfer --allow-unfunded-recipient --url ${rpc} --keypair ${kpPath} ${faucetAddr} 2`, { timeout: 60_000, encoding: "utf8" });
+        const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
+        res.json({ success: true, faucetAddress: faucetAddr, faucetBalance: bal, message: "Faucet wallet funded! Airdrop should work now." });
         return;
       } catch {}
     }
