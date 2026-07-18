@@ -30,6 +30,7 @@
 - [Tech Stack](#-tech-stack)
 - [Data Flow](#-data-flow)
 - [Security](#-security)
+- [Roadmap — Next Evolution](#-roadmap--next-evolution)
 
 ---
 
@@ -731,6 +732,193 @@ curl -X POST https://.../api/build \
 
 ---
 
+---
+
+## 🧭 Roadmap — Next Evolution
+
+The following architectural upgrades transform the playground from a basic IDE into a professional Solana development platform.
+
+### 1. Sandboxed Per-Build Execution
+
+| Current | Target |
+|---|---|
+| All builds share the same Docker container and `/tmp` namespace | Each build gets an **isolated sandbox** (Firecracker microVM, gVisor, or ephemeral Docker container) |
+| Temp dir cleanup with `fs.rm().catch(())` — race conditions under load | Hard resource limits per sandbox (CPU, memory, disk, network) |
+| No network isolation — builds can reach the internet | **Air-gapped** by default, opt-in network for dependency fetching |
+| State leaks between builds via shared filesystem | Clean-room filesystem per sandbox, destroyed on completion |
+
+**Why:** Prevents malicious programs from exfiltrating data, ensures reproducible builds, and eliminates cross-build contamination. This is the difference between a CRUD endpoint and a secure build platform.
+
+### 2. Real Job Queue (BullMQ + Redis)
+
+| Current | Target |
+|---|---|
+| `activeBuilds` in-memory counter | BullMQ queue with Redis persistence |
+| Lost on restart — `activeBuilds` resets to 0 | Survives restarts, survives replica scaling |
+| `MAX_CONCURRENT_BUILDS = 2` per process | Dynamic scaling — queue workers auto-scale |
+| No build history — result lost on restart | Persistent job history — status, logs, artifacts |
+| No retry on failure | Automatic retry with configurable policy |
+
+```
+┌──────────┐    ┌──────────┐    ┌────────────┐
+│  Client  │───▶│  BullMQ  │───▶│  Worker 1  │
+│          │    │  (Redis) │    ├────────────┤
+│          │    │          │    │  Worker 2  │
+│          │    │          │    ├────────────┤
+│          │    │          │    │  Worker N  │
+└──────────┘    └──────────┘    └────────────┘
+```
+
+**Why:** The current in-memory approach cannot scale beyond a single process. A queue architecture enables horizontal scaling, persistence, and observability.
+
+### 3. Program Simulation Before Deploy
+
+Run a **simulated transaction** against the built program to catch failures before spending SOL on deployment:
+
+```
+Build .so ──→ Simulate deploy transaction ──→ Show user:
+                                               ├── Estimated rent cost (SOL)
+                                               ├── Account space needed (bytes)
+                                               ├── Expected program ID
+                                               └── Simulation errors (if any)
+```
+
+- Uses `solana program deploy --simulate` or raw `solana simulate`
+- Shows users **exactly** what will happen before they commit
+- Detects: insufficient balance, account conflicts, rent-exemption failures, BPF loader version mismatches
+
+**Why:** Deployment costs SOL — users should never learn about rent or account space the hard way. This is the "type-check before compile" moment for Solana.
+
+### 4. PDA / Account Visualizer
+
+Given an IDL, auto-derive and display **every account** a transaction will touch:
+
+```
+Transaction: initializeCounter(user, counter)
+              │
+              ├── User Account (signer)
+              │   ├── Address: 3Lymx...2rgR
+              │   ├── Lamports: 2.5 SOL
+              │   └── Owner: System Program
+              │
+              ├── Counter Account (PDA)
+              │   ├── Address: 8fG7...9aB2
+              │   ├── Seeds: ["counter", user] + bump
+              │   ├── Space: 40 bytes
+              │   ├── Rent: 0.002 SOL
+              │   └── Owner: Counter Program (new)
+              │
+              └── System Program (CPM)
+                  └── Transfers: 0.002 SOL (rent)
+```
+
+- **Seeds + bump derivation** shown explicitly so users understand PDAs
+- **Rent cost** shown per account — instant mental model for "why does Solana need rent?"
+- **Account hierarchy** visualised as a tree — shows relationship between accounts
+- **"Why this matters"** tooltips connect Solana's account model to the UI
+
+**Goal:** The visualizer should trigger the "I understand why Solana's architecture is different from EVM" insight in under 30 seconds.
+
+### 5. CPI Debugging View
+
+Trace cross-program invocations during transaction execution:
+
+```
+Transaction Flow:
+  ┌──────────────────────────────────────────────┐
+  │  User → Counter Program                      │
+  │    ├── CPI: System Program (create_account)  │
+  │    │     ├── Input: user, counter PDA        │
+  │    │     └── Output: account created         │
+  │    ├── CPI: Counter Program (initialize)     │
+  │    │     ├── Input: counter PDA              │
+  │    │     └── Output: counter.data = 0        │
+  │    └── Result: CounterInitialized { count:0 }│
+  └──────────────────────────────────────────────┘
+```
+
+- **Real CPI trace** from `solana simulate` output
+- **Nested call tree** — each CPI is a child node
+- **Account mutations** shown per instruction (which accounts changed, by how much)
+- **Error pinpointing** — if a CPI fails, highlight the exact call that failed
+
+### 6. One-Click Program Templates
+
+Pre-built, deployable program templates with one click:
+
+| Template | Description | Accounts | CPI Targets |
+|---|---|---|---|
+| **Counter** | Minimal Anchor example | 2 | None |
+| **Token Vault** | SPL token escrow | 4 | Token Program |
+| **NFT Minter** | Metaplex-compatible mint | 5 | Token + Metaplex |
+| **Staking** | Stake SOL, earn rewards | 6 | System + Token |
+| **AMM** | Constant product market maker | 7 | Token Program |
+
+Each template includes:
+- Ready-to-deploy Rust source
+- Pre-generated IDL
+- Auto-generated TS client
+- Visualized account model
+
+### 7. Auto-Generated TypeScript Client from IDL
+
+```
+Build → IDL → Auto-generate → @project/client/
+  ├── index.ts           (all instructions)
+  ├── accounts/          (account decoders)
+  ├── instructions/      (typed instruction builders)
+  ├── errors/            (typed error classes)
+  └── types.ts           (TypeScript types)
+```
+
+- Generated on build, downloadable as a package
+- Compatible with `@project-serum/anchor` or standalone
+- **Live in the editor** — user can `import` it immediately after build
+
+### 8. Shareable Project Links
+
+```
+solphg.app/p/SURUJ404/counter-amm-7f8a3
+```
+
+- Encodes full project state (files, dependencies, cluster)
+- **Read-only by default** — recipient can fork
+- Version-pinned — links always compile the same thing
+- Embeddable — `<iframe>` for docs/tutorials
+
+### 9. Multi-Cluster Switching
+
+| Cluster | RPC Endpoint | Wallet State | Explorer Link |
+|---|---|---|---|
+| **Devnet** | `api.devnet.solana.com` | devnet-wallet-1 | ✅ |
+| **Testnet** | `api.testnet.solana.com` | testnet-wallet-1 | ✅ |
+| **Mainnet** | Custom RPC | mainnet-wallet-1 | ✅ (read-only) |
+
+- **Per-cluster wallet state** — different keys for different clusters
+- **Balance shown per cluster** — no confusion about which network you're on
+- **Cluster badge** prominently displayed in the toolbar
+- **Mainnet is read-only** — build + simulate only, deploy blocked by confirmation dialog
+
+### 10. Persistent Build Cache Per User
+
+```
+User: SURUJ404
+  └── Project: counter-amm
+       ├── .anchor/          (cached Anchor build artifacts)
+       ├── target/deploy/    (cached .so files)
+       └── target/idl/       (cached IDL)
+```
+
+- **Per-user S3/GCS bucket** keyed by project hash + dependency lockfile hash
+- **Warm build**: < 5 seconds (skip `cargo build-sbf`, use cached artifact)
+- **Cold build**: < 2 minutes (first time)
+- **Cache busting**: lockfile change, Solana CLI version change, or manual "rebuild clean"
+- Solves the **"first anchor build takes forever"** pain point directly
+
+**Why:** The #1 complaint about web-based Solana IDEs is slow builds. A persistent cache makes repeat builds instant, matching the local development experience.
+
+---
+
 ## 📚 References
 
 - [Solana Documentation](https://solana.com/docs)
@@ -738,3 +926,5 @@ curl -X POST https://.../api/build \
 - [Solana Devnet Faucet](https://faucet.solana.com)
 - [Railway Documentation](https://docs.railway.app/)
 - [Vite Documentation](https://vitejs.dev/)
+- [BullMQ](https://bullmq.io/) — Redis-backed job queue
+- [Firecracker](https://firecracker-microvm.github.io/) — Secure microVM for sandboxed execution
