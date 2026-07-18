@@ -45,7 +45,7 @@
 | **Build** | Remote Anchor/SBF build service (Railway) |
 | **Deploy** | Deploy programs to Solana Devnet |
 | **Wallet** | Generate, import, or connect browser wallets (Phantom, Solflare, Backpack) |
-| **Airdrop** | Get devnet SOL via faucet wallet or RPC fallback |
+| **Airdrop** | Get devnet SOL via faucet transfer, server RPC pool (CLI + web3.js dual client), or client-side browser fallback |
 | **Terminal** | Built-in terminal emulator with Solana CLI commands |
 
 ---
@@ -214,10 +214,28 @@ interface AppState {
   buildResult: BuildResultData | null // Build output info
   terminalLines: TerminalLine[]       // Terminal history
   isBuilding: boolean
-  isAirdropping: boolean
+  isAirdropping: boolean              // True during server + client airdrop attempts
   apiConnected: boolean | undefined
   activeSidebar: 'files' | 'search' | 'docs' | 'settings' | ''
 }
+```
+
+### Airdrop Handler (`handleAirdrop`)
+
+The airdrop handler in `App.tsx` orchestrates a multi-strategy approach:
+
+```typescript
+handleAirdrop():
+  1. POST /api/airdrop → server tries:
+     a) Faucet solana transfer
+     b) RPC pool: CLI solana airdrop × 3 retries per endpoint
+     c) RPC pool: web3.js requestAirdrop × 2 retries per endpoint
+  2. If server returns { error } → client-side fallback:
+     a) "Backend busy, retrying from browser..." message
+     b) createSolanaRpc(url).requestAirdrop(address, 2e9).send()
+     c) Tries api.devnet.solana.com then helius (if key available)
+     d) Uses user's IP (separate rate-limit pool from Railway)
+  3. Show result (tx hash or error message) in terminal
 ```
 
 ---
@@ -289,10 +307,17 @@ Steps:
 Body: { address: string, amount?: number }
 Strategy (tried in order):
   1. Faucet transfer (if FAUCET_SECRET_KEY has SOL) — no rate limits
-  2. RPC requestAirdrop (shuffled pool, 3 retries each)
+  2. RPC requestAirdrop (shuffled pool, dual HTTP client per endpoint)
      - DEVNET_RPC_URL env var
      - api.devnet.solana.com
      - devnet.helius-rpc.com (if HELIUS_API_KEY set)
+
+     Per endpoint, both approaches are tried:
+       a) CLI: solana airdrop (3 retries, exponential backoff 5s→10s→20s)
+       b) Web3.js: Connection.requestAirdrop (2 retries, backoff 3s→6s)
+
+     Using two different HTTP clients (CLI's reqwest vs web3.js's fetch)
+     helps bypass client-specific blocks or rate-limit counters.
 ```
 
 ---
@@ -468,13 +493,30 @@ Uses **wallet-standard** events + legacy `window.solana` injection:
 
 ## 💧 Airdrop System
 
-### Strategy
+### Strategy (Server-Side)
 
 ```
-Request → Faucet transfer (if faucet has SOL)
-        └── No ──→ requestAirdrop (shuffled RPC pool, 3 retries each)
-                  └── All fail ──→ Error with faucet funding instructions
+Request → Faucet transfer (if faucet has SOL) ──✅ Success
+        └── No ──→ For each RPC in shuffled pool:
+                   ├── CLI: solana airdrop (3 retries, backoff) ──✅ Success
+                   └── Web3.js: Connection.requestAirdrop (2 retries, backoff) ──✅ Success
+                   └── Next RPC ──→ ...
+                  └── All fail ──→ Return error to frontend
 ```
+
+### Client-Side Fallback
+
+When the server returns an error (faucet dry + all RPCs rate-limited from Railway's IP), the frontend automatically retries `requestAirdrop` directly from the **user's browser**:
+
+```
+Frontend receives error ──→ createSolanaRpc().requestAirdrop() from user's IP
+                           ├── https://api.devnet.solana.com
+                           └── https://devnet.helius-rpc.com
+```
+
+- User's IP has its own daily rate limit quota, separate from Railway's
+- Uses `@solana/web3.js` v2 (`createSolanaRpc` + `requestAirdrop`)
+- No user action needed — happens automatically after backend failure
 
 ### Faucet Transfer (Primary)
 
@@ -492,11 +534,18 @@ Tries `requestAirdrop` across multiple RPC endpoints in shuffled order:
 2. `api.devnet.solana.com` (public)
 3. `devnet.helius-rpc.com` (with API key, if `HELIUS_API_KEY` set)
 
-Each endpoint gets 3 attempts with exponential backoff (5s → 10s → 30s).
+Each endpoint uses two concurrent HTTP strategies:
+
+| Strategy | Client | Retries | Backoff |
+|---|---|---|---|
+| CLI solana airdrop | reqwest (C library) | 3 | 5s → 10s → 20s |
+| Web3.js Connection.requestAirdrop | fetch (Node.js) | 2 | 3s → 6s |
+
+This dual-approach per endpoint provides resilience against client-specific blocks.
 
 ### Faucet Bootstrap
 
-`POST /api/faucet-fund` — generates a fresh keypair, airdrops 2 SOL via RPC, then auto-transfers to the faucet wallet.
+`POST /api/faucet-fund` — generates a fresh keypair, airdrops 2 SOL via RPC (CLI + web3.js fallback), then auto-transfers to the faucet wallet.
 
 ---
 
@@ -608,22 +657,30 @@ User clicks "AirDrop SOL"
        ▼
 handleAirdrop()
        │
-       ▼
-CompilerClient.airdrop(address, amount)
-       │
-       ▼
-POST /api/airdrop { address, amount }
-       │
-       ▼
-index.ts:
-  ├── Faucet path (FAUCET_SECRET_KEY set?)
-  │   ├── YES → solana transfer --keypair faucet → return
-  │   └── NO  → fall through
-  ├── RPC fallback (shuffled pool)
-  │   ├── Try RPC 1 → 3 retries
-  │   ├── Try RPC 2 → 3 retries
-  │   └── Try RPC 3 → 3 retries
-  └── All fail → error + funding instructions
+       ├──────────────────────────────────────┐
+       ▼                                      │
+CompilerClient.airdrop(address, amount)        │
+       │                                      │
+       ▼                                      │
+POST /api/airdrop { address, amount }          │
+       │                                      │
+       ▼                                      │
+index.ts (server-side):                       │
+  ├── Faucet path (FAUCET_SECRET_KEY set?)    │
+  │   ├── YES → solana transfer → return ✅    │
+  │   └── NO  → fall through                  │
+  ├── RPC fallback (shuffled pool)            │
+  │   For each RPC:                           │
+  │   ├── CLI solana airdrop × 3 retries      │
+  │   └── Web3.js requestAirdrop × 2 retries  │
+  └── All fail → return { error } ────────────┘
+                                               │
+                                               ▼
+                              Client-side fallback (App.tsx):
+                              ├── "Backend busy, retrying from browser..."
+                              ├── createSolanaRpc(url).requestAirdrop()
+                              │   └── success → show tx hash ✅
+                              └── all fail → show original error
 ```
 
 ---
@@ -651,7 +708,8 @@ index.ts:
 | Build time (warm) | < 15 sec (cached lockfile) |
 | Deploy time | < 30 sec |
 | Airdrop (faucet) | < 5 sec |
-| Airdrop (RPC) | < 60 sec (with retries) |
+| Airdrop (RPC server) | < 120 sec (CLI + web3.js dual retries) |
+| Airdrop (client fallback) | < 15 sec (single request from browser) |
 | Concurrent builds | 2 max |
 
 ---
