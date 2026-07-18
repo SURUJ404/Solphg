@@ -268,35 +268,54 @@ app.post("/api/simulate", async (req: Request, res: Response) => {
       balance = parseFloat(balOut.toString().trim().replace(" SOL", "")) || 0;
     } catch {}
 
-    // Simulate deploy — dry run shows rent cost + errors
-    const deployCmd = programKeypair
-      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} --simulate 2>&1`
-      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} --simulate 2>&1`;
+    // Estimate deploy cost from bytecode size
+    // Program account rent ≈ (4 + 32 + 32 + 32 + 4 + bytecode) bytes
+    // Rounded to nearest 1KB for estimation
+    const bytecodeSize = soBytes.length;
+    const programAccountBytes = 100 + bytecodeSize; // ~100 bytes overhead
+    const rentExemptionPerKb = 0.0035; // ~0.0035 SOL per KB rent-exempt
+    const estimatedRent = Math.ceil(programAccountBytes / 1024) * rentExemptionPerKb;
 
-    let simulateOutput = "";
-    let simulateError: string | null = null;
-    try {
-      simulateOutput = execSync(deployCmd, { cwd: tmpDir, timeout: 60_000, encoding: "utf8" }).toString().trim();
-    } catch (err: any) {
-      simulateError = err.stderr || err.stdout || err.message || "simulation failed";
+    // Check if the expected program ID already exists on chain
+    let existingProgramId: string | null = null;
+    let programExists = false;
+    if (programKeypair) {
+      try {
+        const pkOut = execSync(
+          `solana-keygen pubkey ${programKpPath}`,
+          { timeout: 5_000, encoding: "utf8" },
+        ).toString().trim();
+        existingProgramId = pkOut;
+        // Try fetching the program account
+        execSync(
+          `solana program show ${pkOut} --url ${rpcUrl} 2>&1`,
+          { timeout: 10_000, encoding: "utf8" },
+        );
+        programExists = true;
+      } catch {
+        // Program doesn't exist yet — good
+      }
     }
 
-    // Parse program ID from output
-    const progIdMatch = (simulateOutput || simulateError || "").match(/Program Id:\s*(\w+)/);
-    const programId = progIdMatch ? progIdMatch[1] : undefined;
-
-    // Estimate rent cost from bytecode size
-    const bytecodeSize = soBytes.length;
-    const estimatedRent = Math.max(1, Math.ceil(bytecodeSize / (1024 * 1024))) * 0.05; // rough: ~0.05 SOL per MB
+    // Check if authority has enough for tx fee
+    const txFee = 0.00001; // ~0.00001 SOL per signature
+    const totalCost = estimatedRent + txFee;
 
     res.json({
-      success: !simulateError,
-      programId,
+      success: true,
+      programId: existingProgramId,
       bytecodeSize,
-      estimatedRentSol: estimatedRent,
+      estimatedRentSol: Math.round(estimatedRent * 1e6) / 1e6,
       authorityBalance: balance,
-      hasSufficientBalance: balance >= estimatedRent,
-      output: simulateOutput || simulateError,
+      hasSufficientBalance: balance >= totalCost,
+      programExists,
+      output: [
+        `Bytecode size: ${(bytecodeSize / 1024).toFixed(1)} KB`,
+        `Est. rent-exempt balance: ${(Math.round(estimatedRent * 1e6) / 1e6).toFixed(4)} SOL`,
+        `Authority balance: ${balance.toFixed(4)} SOL`,
+        programExists ? `⚠ Program ID already exists — will upgrade` : `✓ Program ID is available`,
+        balance >= totalCost ? `✓ Sufficient balance` : `⚠ Need ~${totalCost.toFixed(4)} SOL for deploy`,
+      ].join('\n'),
     });
   } catch (err: any) {
     const msg = err.stderr || err.stdout || err.message || String(err);
