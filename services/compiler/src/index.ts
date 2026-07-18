@@ -97,55 +97,40 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
       } catch { /* fall through to airdrop */ }
     }
 
-    // Fallback: try requestAirdrop across multiple RPC endpoints
-    // Each endpoint has its own daily rate limit, so rotate through them
-    // For each endpoint try both CLI (solana airdrop) and web3.js (Connection.requestAirdrop)
-    // since they use different HTTP clients and may have different behavior
+    // Fallback: try requestAirdrop across multiple RPC endpoints.
+    // Total timeout of 25s max — fail fast instead of retrying forever.
     let lastErr: any;
     const shuffled = [...AIRDROP_RPCS].sort(() => Math.random() - 0.5);
     const lamports = (amount || 2) * 1e9;
+    const DEADLINE = Date.now() + 25_000;
 
     for (const rpcUrl of shuffled) {
-      // Approach 1: CLI solana airdrop
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const sig = execSync(
-            `solana airdrop ${amount || 2} ${address} --url ${rpcUrl}`,
-            { cwd: tmpDir, timeout: 60_000, encoding: "utf8" },
-          ).toString().trim();
-          res.json({ signature: sig });
-          return;
-        } catch (err: any) {
-          lastErr = err;
-          const msg = (err.stderr || err.stdout || err.message || "").toLowerCase();
-          const isRateLimit = msg.includes("rate limit") || msg.includes("429") || msg.includes("airdrop limit") || msg.includes("too many requests");
-          if (isRateLimit) {
-            await sleep(Math.min(5000 * Math.pow(2, attempt), 30_000));
-            continue;
-          }
-          break;
-        }
+      if (Date.now() > DEADLINE) break;
+
+      // Approach 1: CLI solana airdrop (1 attempt per RPC, quick)
+      try {
+        const sig = execSync(
+          `solana airdrop ${amount || 2} ${address} --url ${rpcUrl}`,
+          { cwd: tmpDir, timeout: 20_000, encoding: "utf8" },
+        ).toString().trim();
+        res.json({ signature: sig });
+        return;
+      } catch (err: any) {
+        lastErr = err;
       }
 
-      // Approach 2: web3.js Connection.requestAirdrop (different HTTP client, may bypass CLI-specific blocks)
-      for (let attempt = 0; attempt < 2; attempt++) {
-        try {
-          const connection = new Connection(rpcUrl, "confirmed");
-          const pubkey = new PublicKey(address);
-          const sig = await connection.requestAirdrop(pubkey, lamports);
-          await connection.confirmTransaction(sig, "confirmed");
-          res.json({ signature: sig });
-          return;
-        } catch (err: any) {
-          lastErr = err;
-          const msg = (err.message || "").toLowerCase();
-          const isRateLimit = msg.includes("rate limit") || msg.includes("429") || msg.includes("airdrop limit") || msg.includes("too many requests");
-          if (isRateLimit) {
-            await sleep(Math.min(3000 * Math.pow(2, attempt), 20_000));
-            continue;
-          }
-          break;
-        }
+      if (Date.now() > DEADLINE) break;
+
+      // Approach 2: web3.js Connection.requestAirdrop (1 attempt per RPC)
+      try {
+        const connection = new Connection(rpcUrl, "confirmed");
+        const pubkey = new PublicKey(address);
+        const sig = await connection.requestAirdrop(pubkey, lamports);
+        await connection.confirmTransaction(sig, "confirmed");
+        res.json({ signature: sig });
+        return;
+      } catch (err: any) {
+        lastErr = err;
       }
     }
 
@@ -173,25 +158,13 @@ app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
     const addr = execSync(`solana-keygen pubkey ${kpPath}`, { encoding: "utf8" }).toString().trim();
     const rpcs = [DEVNET_RPC, "https://api.devnet.solana.com", HELIUS_API_KEY ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : ""].filter(Boolean);
 
+    const fundDeadline = Date.now() + 20_000;
     for (const rpc of [...rpcs].sort(() => Math.random() - 0.5)) {
-      // CLI approach
+      if (Date.now() > fundDeadline) break;
       try {
-        execSync(`solana airdrop 2 ${addr} --url ${rpc}`, { timeout: 60_000, encoding: "utf8" });
+        execSync(`solana airdrop 2 ${addr} --url ${rpc}`, { timeout: 15_000, encoding: "utf8" });
         const faucetAddr = "3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR";
-        execSync(`solana transfer --allow-unfunded-recipient --url ${rpc} --keypair ${kpPath} ${faucetAddr} 2`, { timeout: 60_000, encoding: "utf8" });
-        const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
-        res.json({ success: true, faucetAddress: faucetAddr, faucetBalance: bal, message: "Faucet wallet funded! Airdrop should work now." });
-        return;
-      } catch {}
-
-      // web3.js fallback
-      try {
-        const connection = new Connection(rpc, "confirmed");
-        const pubkey = new PublicKey(addr);
-        const sig = await connection.requestAirdrop(pubkey, 2e9);
-        await connection.confirmTransaction(sig, "confirmed");
-        const faucetAddr = "3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR";
-        execSync(`solana transfer --allow-unfunded-recipient --url ${rpc} --keypair ${kpPath} ${faucetAddr} 2`, { timeout: 60_000, encoding: "utf8" });
+        execSync(`solana transfer --allow-unfunded-recipient --url ${rpc} --keypair ${kpPath} ${faucetAddr} 2`, { timeout: 15_000, encoding: "utf8" });
         const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
         res.json({ success: true, faucetAddress: faucetAddr, faucetBalance: bal, message: "Faucet wallet funded! Airdrop should work now." });
         return;
