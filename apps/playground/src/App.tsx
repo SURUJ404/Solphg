@@ -137,6 +137,11 @@ export function App() {
       setTerminalLines(prev => [...prev, msg])
       return
     }
+    if (!wallet.secretKey) {
+      const msg: TerminalLine = { id: crypto.randomUUID(), content: 'Deploy requires a generated or imported wallet (browser wallets like Backpack cannot sign deployments). Generate a wallet in the Wallet panel.', type: 'error' }
+      setTerminalLines(prev => [...prev, msg])
+      return
+    }
 
     const msg: TerminalLine = { id: crypto.randomUUID(), content: 'Deploying program to devnet...', type: 'system' }
     setTerminalLines(prev => [...prev, msg])

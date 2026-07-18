@@ -183,8 +183,14 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
     const programPath = path.join(tmpDir, "program.so");
     const programKpPath = path.join(tmpDir, "program-kp.json");
 
-    // Write authority keypair
+    // Validate and write authority keypair
+    if (!authoritySecretKey || typeof authoritySecretKey !== "string") {
+      return res.json({ error: "authoritySecretKey is required" });
+    }
     const authorityBytes = Buffer.from(authoritySecretKey, "hex");
+    if (authorityBytes.length !== 64) {
+      return res.json({ error: `authoritySecretKey must be 64 bytes, got ${authorityBytes.length}. Browser wallets (Backpack/Phantom) cannot sign deployments — generate or import a wallet.` });
+    }
     await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
 
     // Write program binary
