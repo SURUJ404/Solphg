@@ -324,7 +324,13 @@ Mode 2 — Auto-trace (if solana-test-validator available):
   captures and parses CPI trace. Falls back gracefully if validator unavailable.
 
 CpiNode structure:
-  { programId, depth, computeUnits, success, error?, children: CpiNode[] }
+   { programId, depth, computeUnits, success, error?, accounts: string[], children: CpiNode[] }
+
+   Parser handles three log line types:
+     - "Program <id> invoke [<depth>]"      → push node onto stack
+     - "Program <id> consumed <n> of <m>"   → assign CU by program ID (searches stack backward)
+     - "Program <id> success"               → pop, mark success=true
+     - "Program <id> failed: <message>"     → pop, mark success=false, extract error text
 ```
 
 #### `POST /api/deploy`
@@ -350,12 +356,12 @@ Strategy (tried in order):
      - api.devnet.solana.com
      - devnet.helius-rpc.com (if HELIUS_API_KEY set)
 
-     Per endpoint, both approaches are tried:
-       a) CLI: solana airdrop (3 retries, exponential backoff 5s→10s→20s)
-       b) Web3.js: Connection.requestAirdrop (2 retries, backoff 3s→6s)
+     Per endpoint, two strategies are tried (1 attempt each):
+        a) CLI: solana airdrop (20s timeout)
+        b) Web3.js: Connection.requestAirdrop (15s timeout)
 
-     Using two different HTTP clients (CLI's reqwest vs web3.js's fetch)
-     helps bypass client-specific blocks or rate-limit counters.
+     A hard 25s total deadline is enforced — fail fast with actionable
+     error (funding instructions) instead of exhausting retries.
 ```
 
 ---
@@ -387,9 +393,11 @@ HTTP client for the Compiler API.
 class CompilerClient {
   constructor(apiUrl?: string)
   build(req: BuildRequest): Promise<BuildResult>
-  deploy(bytecode: string, secretKey: string, programKp?: string): Promise<DeployResult>
-  airdrop(address: string, amount?: number): Promise<AirdropResult>
-  getBalance(address: string): Promise<BalanceResult>
+  simulate(bytecode: string, secretKey: string, programKp?: string, cluster?: string): Promise<SimulateResult>
+  debugCpi(bytecodeBase64: string): Promise<DebugCpiResult>
+  deploy(bytecode: string, secretKey: string, programKp?: string, cluster?: string): Promise<DeployResult>
+  airdrop(address: string, amount?: number, cluster?: string): Promise<AirdropResult>
+  getBalance(address: string, cluster?: string): Promise<BalanceResult>
   health(): Promise<HealthResult>
 }
 ```
@@ -534,12 +542,12 @@ Uses **wallet-standard** events + legacy `window.solana` injection:
 ### Strategy (Server-Side)
 
 ```
-Request → Faucet transfer (if faucet has SOL) ──✅ Success
-        └── No ──→ For each RPC in shuffled pool:
-                   ├── CLI: solana airdrop (3 retries, backoff) ──✅ Success
-                   └── Web3.js: Connection.requestAirdrop (2 retries, backoff) ──✅ Success
-                   └── Next RPC ──→ ...
-                  └── All fail ──→ Return error to frontend
+Request ──→ Faucet transfer (if faucet has SOL) ──✅ Success (instant)
+         └── No ──→ For each RPC in shuffled pool (25s total cap):
+                    ├── CLI: solana airdrop (1 attempt, 20s timeout)
+                    └── Web3.js: Connection.requestAirdrop (1 attempt)
+                    └── Next RPC ──→ ...
+                   └── All fail → Return error + funding instructions
 ```
 
 ### Client-Side Fallback
@@ -572,14 +580,14 @@ Tries `requestAirdrop` across multiple RPC endpoints in shuffled order:
 2. `api.devnet.solana.com` (public)
 3. `devnet.helius-rpc.com` (with API key, if `HELIUS_API_KEY` set)
 
-Each endpoint uses two concurrent HTTP strategies:
+Each endpoint tries two strategies sequentially (1 attempt each):
 
-| Strategy | Client | Retries | Backoff |
-|---|---|---|---|
-| CLI solana airdrop | reqwest (C library) | 3 | 5s → 10s → 20s |
-| Web3.js Connection.requestAirdrop | fetch (Node.js) | 2 | 3s → 6s |
+| Strategy | Client | Timeout |
+|---|---|---|
+| CLI solana airdrop | reqwest (C library) | 20s |
+| Web3.js Connection.requestAirdrop | fetch (Node.js) | 15s |
 
-This dual-approach per endpoint provides resilience against client-specific blocks.
+A hard 25s total deadline is enforced — fail fast with actionable error instead of exhausting retries.
 
 ### Faucet Bootstrap
 
@@ -758,7 +766,7 @@ index.ts (server-side):                       │
 | Build time (warm) | < 15 sec (cached lockfile) |
 | Deploy time | < 30 sec |
 | Airdrop (faucet) | < 5 sec |
-| Airdrop (RPC server) | < 120 sec (CLI + web3.js dual retries) |
+| Airdrop (RPC server) | < 25 sec (1 attempt per RPC, 3 RPCs, 25s total cap) |
 | Airdrop (client fallback) | < 15 sec (single request from browser) |
 | Simulate | < 15 sec (balance check + program lookup) |
 | Concurrent builds | 2 max |

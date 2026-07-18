@@ -6,12 +6,15 @@ A browser-based IDE for writing, compiling, and deploying Solana Anchor programs
 
 ```
 apps/playground (Vite + React SPA) ─── HTTP ─── services/compiler (Express + Solana CLI)
-                                                      │
-                                                      ├── POST /api/build    → cargo build-sbf
-                                                      ├── POST /api/deploy   → solana program deploy
-                                                      ├── POST /api/airdrop  → solana airdrop
-                                                      ├── GET  /api/balance  → solana balance
-                                                      └── GET  /api/health
+                                                       │
+                                                       ├── POST /api/build      → cargo build-sbf
+                                                       ├── POST /api/deploy     → solana program deploy
+                                                       ├── POST /api/simulate   → rent est. + balance + conflict check
+                                                       ├── POST /api/debug-cpi  → CPI tree parser (logs / auto-trace)
+                                                       ├── POST /api/airdrop    → faucet + RPC pool + client fallback
+                                                       ├── POST /api/faucet-fund→ bootstrap faucet wallet
+                                                       ├── GET  /api/balance    → solana balance (any cluster)
+                                                       └── GET  /api/health
 ```
 
 **Frontend** → Vite React SPA with Monaco editor, terminal emulator, file explorer, and wallet panel. Communicates with the build service over HTTP.
@@ -41,7 +44,7 @@ services/
 | Package | Role |
 |---|---|
 | `@solshift/core` | Shared types (`SolpgProject`, `WalletState`, `TerminalLine`, IDL interfaces), constants (program IDs, endpoints), wallet persistence |
-| `@solshift/engine` | `CompilerClient` — `build()`, `deploy()`, `airdrop()`, `getBalance()`, `health()` |
+| `@solshift/engine` | `CompilerClient` — `build()`, `deploy()`, `simulate()`, `debugCpi()`, `airdrop()`, `getBalance()`, `health()` |
 | `@solshift/shell` | `TerminalEmulator` — interprets `solana airdrop`, `anchor build`, etc. |
 | `@solshift/plugin-manager` | `ProjectManager` — scaffold projects from templates, manage files |
 | `@solshift/integrations` | Extension stubs for future tooling |
