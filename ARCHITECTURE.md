@@ -276,6 +276,7 @@ handleAirdrop():
 | `GET` | `/api/health` | Service health check |
 | `POST` | `/api/build` | Build Anchor program (Rust → .so) |
 | `POST` | `/api/simulate` | Pre-deploy simulation: rent estimate, balance check, program ID conflict |
+| `POST` | `/api/debug-cpi` | CPI trace parser — accepts raw logs or bytecode for local validator trace |
 | `POST` | `/api/deploy` | Deploy program to selected cluster (devnet/testnet/mainnet) |
 | `POST` | `/api/airdrop` | Request devnet SOL (faucet transfer + RPC fallback) |
 | `POST` | `/api/faucet-fund` | Bootstrap faucet wallet with fresh airdrop |
@@ -307,6 +308,23 @@ Steps:
   4. Check if program ID already exists on chain (upgrade vs fresh deploy)
   5. Estimate rent-exempt cost from bytecode size (~0.0035 SOL/KB)
   6. Return: bytecodeSize, estimatedRentSol, authorityBalance, hasSufficientBalance, programExists
+```
+
+#### `POST /api/debug-cpi`
+
+```
+Mode 1 — Parse raw logs:
+  Body: { rawLogs: string }
+  Parses Solana simulation log output into structured CPI call tree.
+  Returns: { cpiTree: CpiNode[], summary, rawLogs }
+
+Mode 2 — Auto-trace (if solana-test-validator available):
+  Body: { bytecodeBase64: string, idl?: object }
+  Starts ephemeral test validator, deploys program, simulates execution,
+  captures and parses CPI trace. Falls back gracefully if validator unavailable.
+
+CpiNode structure:
+  { programId, depth, computeUnits, success, error?, children: CpiNode[] }
 ```
 
 #### `POST /api/deploy`
@@ -851,7 +869,7 @@ Transaction: initializeCounter(user, counter)
 
 **Goal:** The visualizer should trigger the "I understand why Solana's architecture is different from EVM" insight in under 30 seconds.
 
-### 5. CPI Debugging View
+### 5. CPI Debugging View ✅
 
 Trace cross-program invocations during transaction execution:
 

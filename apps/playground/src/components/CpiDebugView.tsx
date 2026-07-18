@@ -67,6 +67,7 @@ function CpiTreeNode({ node, depth }: { node: CpiNode; depth: number }) {
 
 export function CpiDebugView({ cpiTree, programId, rawLogs, summary, onClose }: Props) {
   const [showRaw, setShowRaw] = useState(false)
+  const [showParser, setShowParser] = useState(cpiTree.length === 0)
 
   return (
     <div style={{
@@ -124,11 +125,18 @@ export function CpiDebugView({ cpiTree, programId, rawLogs, summary, onClose }: 
           )}
         </div>
 
-        <div style={{ marginTop: 8, padding: 6, background: 'var(--bg)', borderRadius: 4, fontSize: 10, color: 'var(--text-muted)' }}>
-          💡 <strong>What is CPI?</strong> Cross-Program Invocation is how Solana programs call other programs.
-          Each nested level represents a program calling another program. The tree shows the full call chain,
-          compute units consumed, and whether each call succeeded.
+        <div style={{ marginTop: 8, marginBottom: 8 }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => setShowParser(!showParser)} style={{ fontSize: 10 }}>
+            {showParser ? 'Hide Log Parser' : 'Paste Raw Logs to Parse'}
+          </button>
+          {showParser && <CpiLogParser />}
         </div>
+
+        <div style={{ marginTop: 8, padding: 6, background: 'var(--bg)', borderRadius: 4, fontSize: 10, color: 'var(--text-muted)' }}>
+            💡 <strong>What is CPI?</strong> Cross-Program Invocation is how Solana programs call other programs.
+            Each nested level represents a program calling another program. The tree shows the full call chain,
+            compute units consumed, and whether each call succeeded.
+          </div>
       </div>
     </div>
   )

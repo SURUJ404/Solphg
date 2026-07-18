@@ -442,23 +442,13 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
     } catch {}
 
     if (!hasValidator) {
-      // Fallback: simulate transfer to derive basic CPI info from system program
-      const simOutput = execSync(
-        `solana transfer --allow-unfunded-recipient --url devnet 11111111111111111111111111111111 0.0001 --simulate --dump-transaction-summary 2>&1 || true`,
-        { timeout: 30_000, encoding: "utf8" }
-      ).toString();
-      const parsedTree = parseCpiLogs(simOutput);
-
       return res.json({
         success: true,
         programId,
-        cpiTree: parsedTree,
-        rawLogs: simOutput.slice(0, 5000),
-        summary: {
-          totalCpis: parsedTree.length,
-          computeUnits: "N/A (solana-test-validator not available)",
-        },
-        note: "solana-test-validator not found. CPI trace shows system program reference. Use 'Paste Raw Logs' to analyze actual transaction output.",
+        cpiTree: [],
+        rawLogs: "solana-test-validator not available in this environment. Use the 'Paste Raw Logs' feature in the CPI Debug tab — run `solana simulate` in your terminal and paste the output here.",
+        summary: { totalCpis: 0, computeUnits: "N/A" },
+        note: "Local validator not found. Paste raw simulation logs to analyze CPI traces.",
       });
     }
 
