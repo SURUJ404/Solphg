@@ -47,6 +47,10 @@
 | **Deploy** | Deploy programs to Solana Devnet |
 | **Wallet** | Generate, import, or connect browser wallets (Phantom, Solflare, Backpack) |
 | **Airdrop** | Get devnet SOL via faucet transfer, server RPC pool (CLI + web3.js dual client), or client-side browser fallback |
+| **Simulate** | Pre-deploy simulation with rent estimate, balance check, and program ID conflict detection |
+| **Multi-Cluster** | Switch between devnet/testnet/mainnet with per-cluster wallet state |
+| **Templates** | One-click project templates (Counter, SPL Transfer, Coin Flip, Native) |
+| **Account Visualizer** | PDA tree view showing all accounts a transaction touches |
 | **Terminal** | Built-in terminal emulator with Solana CLI commands |
 
 ---
@@ -186,6 +190,7 @@ App
 │   └── Footer
 └── Playground (App)
     ├── Toolbar
+    │   ├── Cluster selector (devnet/testnet/mainnet)
     │   ├── Build button
     │   ├── Deploy button
     │   ├── API status indicator
@@ -270,10 +275,11 @@ handleAirdrop():
 |---|---|---|
 | `GET` | `/api/health` | Service health check |
 | `POST` | `/api/build` | Build Anchor program (Rust → .so) |
-| `POST` | `/api/deploy` | Deploy program to Solana Devnet |
+| `POST` | `/api/simulate` | Pre-deploy simulation: rent estimate, balance check, program ID conflict |
+| `POST` | `/api/deploy` | Deploy program to selected cluster (devnet/testnet/mainnet) |
 | `POST` | `/api/airdrop` | Request devnet SOL (faucet transfer + RPC fallback) |
 | `POST` | `/api/faucet-fund` | Bootstrap faucet wallet with fresh airdrop |
-| `GET` | `/api/balance/:address` | Get devnet SOL balance |
+| `GET` | `/api/balance/:address` | Get SOL balance for any cluster (`?cluster=testnet`) |
 
 ### Endpoint Details
 
@@ -290,14 +296,27 @@ Steps:
   6. Return .so bytecode (base64) + programId + programKeypair (base64)
 ```
 
+#### `POST /api/simulate`
+
+```
+Body: { bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string, cluster?: string }
+Steps:
+  1. Validate and write authority keypair + program binary
+  2. Get authority SOL balance for the target cluster
+  3. Derive program ID from program keypair (if provided)
+  4. Check if program ID already exists on chain (upgrade vs fresh deploy)
+  5. Estimate rent-exempt cost from bytecode size (~0.0035 SOL/KB)
+  6. Return: bytecodeSize, estimatedRentSol, authorityBalance, hasSufficientBalance, programExists
+```
+
 #### `POST /api/deploy`
 
 ```
-Body: { bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string }
+Body: { bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string, cluster?: string }
 Steps:
   1. Validate authoritySecretKey is 64 bytes
   2. Write authority keypair + program binary to /tmp
-  3. Configure solana CLI with authority keypair
+  3. Configure solana CLI with authority keypair for target cluster
   4. Run `solana program deploy` with optional --program-id
   5. Return transaction signature + program ID
 ```
@@ -305,7 +324,7 @@ Steps:
 #### `POST /api/airdrop`
 
 ```
-Body: { address: string, amount?: number }
+Body: { address: string, amount?: number, cluster?: string }
 Strategy (tried in order):
   1. Faucet transfer (if FAUCET_SECRET_KEY has SOL) — no rate limits
   2. RPC requestAirdrop (shuffled pool, dual HTTP client per endpoint)
@@ -621,30 +640,42 @@ App.tsx:
   └── Terminal: "Build complete."
 ```
 
-### Deploy Flow
+### Deploy Flow (with Simulation)
 
 ```
+User clicks "Simulate Deploy"
+       │
+       ▼
+handleSimulate()
+       │
+       ▼
+POST /api/simulate { bytecode, authorityKey, programKp, cluster }
+       │
+       ▼
+Backend:
+  ├── Get authority balance for cluster
+  ├── Derive program ID from keypair
+  ├── Check if program ID already exists
+  ├── Estimate rent from bytecode size
+  └── Return { rent, balance, sufficient, exists }
+       │
+       ▼
+BuildResult panel:
+  ├── Shows estimated rent cost
+  ├── Shows authority balance
+  ├── Warns if insufficient
+  └── Enables "Deploy" only if sufficient
+       │
 User clicks "Deploy"
        │
        ▼
 handleDeploy()
        │
        ▼
-Check: builtBytecode? wallet? wallet.secretKey?
+POST /api/deploy { bytecode, authorityKey, programKp, cluster }
        │
        ▼
-CompilerClient.deploy(bytecode, secretKey, programKp)
-       │
-       ▼
-POST /api/deploy { bytecodeBase64, authoritySecretKey, programKeypair }
-       │
-       ▼
-index.ts:
-  ├── Validate secret key (64 bytes)
-  ├── Write authority keypair file
-  ├── Write program binary
-  ├── solana config set --keypair authority
-  └── solana program deploy
+Backend: solana program deploy --url <cluster-rpc>
        │
        ▼
 Return { signature, programId }
@@ -711,6 +742,7 @@ index.ts (server-side):                       │
 | Airdrop (faucet) | < 5 sec |
 | Airdrop (RPC server) | < 120 sec (CLI + web3.js dual retries) |
 | Airdrop (client fallback) | < 15 sec (single request from browser) |
+| Simulate | < 15 sec (balance check + program lookup) |
 | Concurrent builds | 2 max |
 
 ---
@@ -736,9 +768,9 @@ curl -X POST https://.../api/build \
 
 ## 🧭 Roadmap — Next Evolution
 
-The following architectural upgrades transform the playground from a basic IDE into a professional Solana development platform.
+The following architectural upgrades transform the playground from a basic IDE into a professional Solana development platform. Items marked ✅ are implemented.
 
-### 1. Sandboxed Per-Build Execution
+### 1. Sandboxed Per-Build Execution ⏳
 
 | Current | Target |
 |---|---|
@@ -749,7 +781,7 @@ The following architectural upgrades transform the playground from a basic IDE i
 
 **Why:** Prevents malicious programs from exfiltrating data, ensures reproducible builds, and eliminates cross-build contamination. This is the difference between a CRUD endpoint and a secure build platform.
 
-### 2. Real Job Queue (BullMQ + Redis)
+### 2. Real Job Queue (BullMQ + Redis) ⏳
 
 | Current | Target |
 |---|---|
@@ -771,7 +803,7 @@ The following architectural upgrades transform the playground from a basic IDE i
 
 **Why:** The current in-memory approach cannot scale beyond a single process. A queue architecture enables horizontal scaling, persistence, and observability.
 
-### 3. Program Simulation Before Deploy
+### 3. Program Simulation Before Deploy ✅
 
 Run a **simulated transaction** against the built program to catch failures before spending SOL on deployment:
 
@@ -789,7 +821,7 @@ Build .so ──→ Simulate deploy transaction ──→ Show user:
 
 **Why:** Deployment costs SOL — users should never learn about rent or account space the hard way. This is the "type-check before compile" moment for Solana.
 
-### 4. PDA / Account Visualizer
+### 4. PDA / Account Visualizer ✅
 
 Given an IDL, auto-derive and display **every account** a transaction will touch:
 
@@ -842,7 +874,7 @@ Transaction Flow:
 - **Account mutations** shown per instruction (which accounts changed, by how much)
 - **Error pinpointing** — if a CPI fails, highlight the exact call that failed
 
-### 6. One-Click Program Templates
+### 6. One-Click Program Templates ✅
 
 Pre-built, deployable program templates with one click:
 
@@ -886,7 +918,7 @@ solphg.app/p/SURUJ404/counter-amm-7f8a3
 - Version-pinned — links always compile the same thing
 - Embeddable — `<iframe>` for docs/tutorials
 
-### 9. Multi-Cluster Switching
+### 9. Multi-Cluster Switching ✅
 
 | Cluster | RPC Endpoint | Wallet State | Explorer Link |
 |---|---|---|---|
