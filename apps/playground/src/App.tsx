@@ -3,6 +3,7 @@ import { EditorPanel } from './components/EditorPanel.js'
 import { TerminalPanel } from './components/TerminalPanel.js'
 import { FileExplorer } from './components/FileExplorer.js'
 import { WalletPanel } from './components/WalletPanel.js'
+import { DocsPanel } from './components/DocsPanel.js'
 import { Toolbar } from './components/Toolbar.js'
 import { ProjectManager, ANCHOR_TEMPLATE } from '@solshift/plugin-manager'
 import { CompilerClient } from '@solshift/engine'
@@ -40,6 +41,15 @@ function SettingsIcon() {
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3" />
       <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+    </svg>
+  )
+}
+
+function BookIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+      <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
     </svg>
   )
 }
@@ -341,6 +351,13 @@ export function App() {
           >
             <SearchIcon />
           </button>
+          <button
+            className={`icon-btn ${activeSidebar === 'docs' ? 'active' : ''}`}
+            onClick={() => setActiveSidebar(activeSidebar === 'docs' ? '' : 'docs')}
+            title="Docs"
+          >
+            <BookIcon />
+          </button>
           <div className="icon-sidebar-spacer" />
           <div className="icon-sidebar-bottom">
             <button
@@ -387,6 +404,8 @@ export function App() {
                 <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
                   Search coming soon
                 </div>
+              ) : activeSidebar === 'docs' ? (
+                <DocsPanel />
               ) : (
                 <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
                   Settings coming soon

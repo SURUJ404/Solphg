@@ -477,3 +477,68 @@ html, body, #root {
 .terminal-input-row input::placeholder {
   color: var(--text-muted);
 }
+
+/* ─────────── Docs Panel ─────────── */
+.docs-panel {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  overflow-y: auto;
+  height: 100%;
+}
+
+.docs-section {
+  margin-bottom: 16px;
+}
+
+.docs-section h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.docs-section p {
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.docs-section ol,
+.docs-section ul {
+  padding-left: 16px;
+  color: var(--text-secondary);
+}
+
+.docs-section li {
+  margin-bottom: 4px;
+}
+
+.docs-section a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.docs-section a:hover {
+  text-decoration: underline;
+}
+
+.docs-section code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-input);
+  padding: 1px 4px;
+  border-radius: 3px;
+  word-break: break-all;
+}
+
+.docs-address {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-input);
+  padding: 6px 8px;
+  border-radius: 4px;
+  word-break: break-all;
+  margin-bottom: 4px;
+}
