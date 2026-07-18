@@ -168,15 +168,45 @@ export function App() {
     setIsAirdropping(true)
     const msg: TerminalLine = { id: crypto.randomUUID(), content: `Airdropping 2 SOL to ${wallet.publicKey}...`, type: 'system' }
     setTerminalLines(prev => [...prev, msg])
+
+    // 1) Try backend (faucet transfer + server-side RPC pool)
     const result = await compilerClient.airdrop(wallet.publicKey, 2)
+
     if (result.signature) {
       const done: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop tx: ${result.signature}`, type: 'output' }
       setTerminalLines(prev => [...prev, done])
       await fetchBalance(wallet.publicKey)
     } else {
-      const err: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop failed: ${result.error}`, type: 'error' }
-      setTerminalLines(prev => [...prev, err])
+      // 2) Backend failed (faucet dry / RPCs rate-limited from Railway IP).
+      //    Fall back to client-side requestAirdrop from the user's browser IP.
+      const fallbackMsg: TerminalLine = { id: crypto.randomUUID(), content: `Backend busy, retrying from your browser...`, type: 'system' }
+      setTerminalLines(prev => [...prev, fallbackMsg])
+
+      let clientSig: string | null = null
+      const clientRpcs = [
+        'https://api.devnet.solana.com',
+        'https://devnet.helius-rpc.com/?api-key=',
+      ].sort(() => Math.random() - 0.5)
+
+      for (const url of clientRpcs) {
+        try {
+          const mod = await import('@solana/web3.js') as any
+          const rpc = mod.createSolanaRpc(url)
+          clientSig = await rpc.requestAirdrop(wallet.publicKey, 2e9).send()
+          if (clientSig) break
+        } catch {}
+      }
+
+      if (clientSig) {
+        const done: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop tx: ${clientSig}`, type: 'output' }
+        setTerminalLines(prev => [...prev, done])
+        await fetchBalance(wallet.publicKey)
+      } else {
+        const err: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop failed: ${result.error}`, type: 'error' }
+        setTerminalLines(prev => [...prev, err])
+      }
     }
+
     setIsAirdropping(false)
   }, [wallet, fetchBalance])
 

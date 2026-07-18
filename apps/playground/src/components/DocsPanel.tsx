@@ -40,6 +40,16 @@ export function DocsPanel() {
       </div>
 
       <div className="docs-section">
+        <h3>Client-Side Fallback</h3>
+        <p>If the backend is rate-limited from Railway's IP, the app automatically retries the airdrop directly from your browser (uses <em>your</em> IP address). This gives you a second quota pool.</p>
+        <ul>
+          <li>The button shows "Backend busy, retrying from your browser..."</li>
+          <li>No action needed &mdash; it tries automatically.</li>
+          <li>If both fail, refill the faucet wallet above.</li>
+        </ul>
+      </div>
+
+      <div className="docs-section">
         <h3>Faucet Address</h3>
         <code className="docs-address">3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR</code>
         <button className="btn btn-ghost btn-sm" style={{ marginTop: 6, fontSize: 11 }} onClick={() => navigator.clipboard.writeText('3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR')}>

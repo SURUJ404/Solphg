@@ -6,6 +6,7 @@ import { execSync } from "child_process";
 import { runBuild } from "./buildService";
 import { BuildRequest } from "./types";
 import { v4 as uuidv4 } from "uuid";
+import { Connection, PublicKey } from "@solana/web3.js";
 
 const PORT = Number(process.env.PORT || 8080);
 const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS || 2);
@@ -88,10 +89,14 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
 
     // Fallback: try requestAirdrop across multiple RPC endpoints
     // Each endpoint has its own daily rate limit, so rotate through them
+    // For each endpoint try both CLI (solana airdrop) and web3.js (Connection.requestAirdrop)
+    // since they use different HTTP clients and may have different behavior
     let lastErr: any;
     const shuffled = [...AIRDROP_RPCS].sort(() => Math.random() - 0.5);
+    const lamports = (amount || 2) * 1e9;
 
     for (const rpcUrl of shuffled) {
+      // Approach 1: CLI solana airdrop
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           const sig = execSync(
@@ -106,6 +111,27 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
           const isRateLimit = msg.includes("rate limit") || msg.includes("429") || msg.includes("airdrop limit") || msg.includes("too many requests");
           if (isRateLimit) {
             await sleep(Math.min(5000 * Math.pow(2, attempt), 30_000));
+            continue;
+          }
+          break;
+        }
+      }
+
+      // Approach 2: web3.js Connection.requestAirdrop (different HTTP client, may bypass CLI-specific blocks)
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const connection = new Connection(rpcUrl, "confirmed");
+          const pubkey = new PublicKey(address);
+          const sig = await connection.requestAirdrop(pubkey, lamports);
+          await connection.confirmTransaction(sig, "confirmed");
+          res.json({ signature: sig });
+          return;
+        } catch (err: any) {
+          lastErr = err;
+          const msg = (err.message || "").toLowerCase();
+          const isRateLimit = msg.includes("rate limit") || msg.includes("429") || msg.includes("airdrop limit") || msg.includes("too many requests");
+          if (isRateLimit) {
+            await sleep(Math.min(3000 * Math.pow(2, attempt), 20_000));
             continue;
           }
           break;
@@ -138,8 +164,22 @@ app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
     const rpcs = [DEVNET_RPC, "https://api.devnet.solana.com", HELIUS_API_KEY ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : ""].filter(Boolean);
 
     for (const rpc of [...rpcs].sort(() => Math.random() - 0.5)) {
+      // CLI approach
       try {
         execSync(`solana airdrop 2 ${addr} --url ${rpc}`, { timeout: 60_000, encoding: "utf8" });
+        const faucetAddr = "3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR";
+        execSync(`solana transfer --allow-unfunded-recipient --url ${rpc} --keypair ${kpPath} ${faucetAddr} 2`, { timeout: 60_000, encoding: "utf8" });
+        const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
+        res.json({ success: true, faucetAddress: faucetAddr, faucetBalance: bal, message: "Faucet wallet funded! Airdrop should work now." });
+        return;
+      } catch {}
+
+      // web3.js fallback
+      try {
+        const connection = new Connection(rpc, "confirmed");
+        const pubkey = new PublicKey(addr);
+        const sig = await connection.requestAirdrop(pubkey, 2e9);
+        await connection.confirmTransaction(sig, "confirmed");
         const faucetAddr = "3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR";
         execSync(`solana transfer --allow-unfunded-recipient --url ${rpc} --keypair ${kpPath} ${faucetAddr} 2`, { timeout: 60_000, encoding: "utf8" });
         const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
@@ -166,8 +206,16 @@ app.get("/api/balance/:address", async (req: Request, res: Response) => {
     const num = parseFloat(balance.replace(" SOL", ""));
     res.json({ balance: isNaN(num) ? 0 : num });
   } catch (err: any) {
-    const msg = err.stderr || err.stdout || err.message || String(err);
-    res.json({ error: msg });
+    // Fallback: web3.js balance check
+    try {
+      const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+      const pubkey = new PublicKey(req.params.address);
+      const lamports = await connection.getBalance(pubkey);
+      res.json({ balance: lamports / 1e9 });
+    } catch {
+      const msg = err.stderr || err.stdout || err.message || String(err);
+      res.json({ error: msg });
+    }
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
