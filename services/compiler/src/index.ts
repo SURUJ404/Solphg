@@ -126,6 +126,33 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
+  // Generates a fresh keypair and tries to airdrop from Railway's IP
+  // Returns the secret key so the user can fund the faucet wallet
+  const tmpDir = path.join("/tmp", `faucet-fund-${uuidv4()}`);
+  try {
+    await fs.mkdir(tmpDir, { recursive: true });
+    const kpPath = path.join(tmpDir, "fresh.json");
+    execSync(`solana-keygen new --no-bip39-passphrase --force --silent --outfile ${kpPath}`, { timeout: 10_000 });
+    const addr = execSync(`solana-keygen pubkey ${kpPath}`, { encoding: "utf8" }).toString().trim();
+    const rpcs = [DEVNET_RPC, "https://api.devnet.solana.com", HELIUS_API_KEY ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : ""].filter(Boolean);
+
+    for (const rpc of [...rpcs].sort(() => Math.random() - 0.5)) {
+      try {
+        const sig = execSync(`solana airdrop 2 ${addr} --url ${rpc}`, { timeout: 60_000, encoding: "utf8" }).toString().trim();
+        const secretHex = Buffer.from(JSON.parse(await fs.readFile(kpPath, "utf8"))).toString("hex");
+        res.json({ address: addr, secretHex, signature: sig, message: "Fund the faucet wallet by transferring SOL from this address" });
+        return;
+      } catch {}
+    }
+    res.json({ error: "All RPC endpoints rate-limited. Try again later." });
+  } catch (err: any) {
+    res.json({ error: err.message || String(err) });
+  } finally {
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 app.get("/api/balance/:address", async (req: Request, res: Response) => {
   const tmpDir = path.join("/tmp", `balance-${uuidv4()}`);
   try {
