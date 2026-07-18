@@ -70,6 +70,11 @@ cp .env.example .env   # or set VITE_COMPILER_API_URL
 npm run dev
 ```
 
+## Documentation
+
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — System architecture, API endpoints, deployment, roadmap
+- [`docs/HOW_AND_WHY.md`](./docs/HOW_AND_WHY.md) — Deep dive into why each feature exists and how it works (CPI debugger, airdrop, simulation, templates, wallet, etc.)
+
 ## Deployment
 
 - **Frontend**: Pushed to `main` → auto-deploys to Vercel
