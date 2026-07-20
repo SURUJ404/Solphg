@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Solana Playground — Solphg</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #0d1117;
+    color: #c9d1d9;
+    line-height: 1.7;
+    font-size: 16px;
+  }
+  .container { max-width: 800px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 2.2em; font-weight: 700; color: #f0f6fc; margin-bottom: 8px; letter-spacing: -0.5px; }
+  h2 { font-size: 1.5em; font-weight: 600; color: #f0f6fc; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #21262d; }
+  h3 { font-size: 1.15em; font-weight: 600; color: #f0f6fc; margin: 24px 0 8px; }
+  p { margin-bottom: 16px; color: #8b949e; }
+  a { color: #58a6ff; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.9em;
+    background: #161b22;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #f0f6fc;
+  }
+  pre {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin-bottom: 20px;
+    font-size: 0.85em;
+    line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; }
+  .subtitle { font-size: 1.1em; color: #8b949e; margin-bottom: 32px; }
+  .meta { font-size: 0.9em; color: #484f58; margin-bottom: 40px; }
+  .tag {
+    display: inline-block;
+    padding: 2px 10px;
+    background: #1f2937;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    font-size: 0.8em;
+    color: #8b949e;
+    margin-right: 6px;
+    margin-bottom: 6px;
+  }
+  .api-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.9em; }
+  .api-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #30363d; color: #8b949e; font-weight: 600; }
+  .api-table td { padding: 8px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; font-family: 'SFMono-Regular', monospace; font-size: 0.9em; }
+  .api-table td:first-child { color: #58a6ff; white-space: nowrap; }
+  .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .feature-card {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .feature-card h4 { color: #f0f6fc; margin-bottom: 6px; font-size: 1em; }
+  .feature-card p { font-size: 0.9em; color: #8b949e; margin: 0; }
+  .footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid #21262d; font-size: 0.85em; color: #484f58; text-align: center; }
+  @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } }
+  .emoji-icon { margin-right: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Solana Playground</h1>
+<p class="subtitle">A browser-based IDE for writing, compiling, and deploying Solana Anchor programs — no local toolchain required.</p>
+<p class="meta">By <strong>Suruj Kalita</strong> · Open source · <a href="https://github.com/SURUJ404/Solphg">GitHub</a></p>
+
+<h2>Why I Built It</h2>
+<p>Learning Solana development has a steep barrier to entry. Before you can write your first program, you need to install Rust, Solana CLI, Anchor, set up a local validator, configure your IDE, and figure out devnet faucets. That's five steps before writing a single line of code.</p>
+<p>Solana Playground removes all of it. You write Rust in a Monaco editor, click "Build," and get a compiled SBF program — all from your browser.</p>
+
+<h2>System Architecture</h2>
+<pre><code>apps/playground (Vite + React SPA) ─── HTTP ─── services/compiler (Express + Solana CLI)</code></pre>
+
+<table class="api-table">
+  <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
+  <tr><td>POST</td><td>/api/build</td><td>Compile Rust → SBF bytecode via <code>cargo build-sbf</code></td></tr>
+  <tr><td>POST</td><td>/api/deploy</td><td>Deploy to devnet/testnet/mainnet</td></tr>
+  <tr><td>POST</td><td>/api/simulate</td><td>Pre-deploy simulation (rent, balance, conflict check)</td></tr>
+  <tr><td>POST</td><td>/api/debug-cpi</td><td>CPI trace parser (logs or auto-trace)</td></tr>
+  <tr><td>POST</td><td>/api/profile</td><td>CU profiler — flamechart with per-instruction breakdown</td></tr>
+  <tr><td>POST</td><td>/api/airdrop</td><td>Multi-strategy airdrop (faucet → RPC → client fallback)</td></tr>
+  <tr><td>GET</td><td>/api/balance/:address</td><td>SOL balance for any cluster</td></tr>
+</table>
+
+<h2>The Airdrop Challenge</h2>
+<p>The public <code>requestAirdrop</code> endpoint is aggressively rate-limited. I built a 3-tier fallback system:</p>
+
+<div class="feature-grid">
+  <div class="feature-card">
+    <h4>Tier 1 — Faucet Wallet</h4>
+    <p>Pre-funded wallet sends a regular Solana transfer. No rate limits on transfers — instant when funded.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Tier 2 — RPC Pool</h4>
+    <p>Shuffled RPC endpoints with dual strategies (CLI + web3.js). Hard 25s deadline to fail fast.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Tier 3 — Browser Fallback</h4>
+    <p>Client-side <code>requestAirdrop</code> from the user's IP, which has its own rate-limit pool.</p>
+  </div>
+  <div class="feature-card">
+    <h4>CU Profiler</h4>
+    <p>Simulate transactions, parse runtime logs, render an icicle chart with hotspot detection.</p>
+  </div>
+</div>
+
+<h2>How The Build Pipeline Works</h2>
+<pre><code>Editor → CompilerClient → POST /api/build → Express → scaffold Anchor project → cargo build-sbf → return .so (base64) + programId + keypair</code></pre>
+<p>Cold builds take ~2 minutes (dependency download). Warm builds take ~15 seconds with cached lockfiles. The Docker container bundles Solana CLI 1.18.18, Anchor 0.30.1, and Rust 1.85.</p>
+
+<h2>CU Profiling — The Latest Feature</h2>
+<p>The most recent addition is a Compute Unit profiler. The backend deploys your program to a local validator, simulates a transaction, parses the runtime logs for every <code>Program X consumed N of M compute units</code> line, and returns a tree with per-instruction CU consumption.</p>
+<p>The frontend renders an icicle chart where bar width = CU cost and nesting = CPI depth. Instructions consuming >20% of total CU are flagged as <strong>hotspots</strong>. A reference line at 1.4M CU shows how close you are to the transaction cap.</p>
+
+<h2>The Monorepo</h2>
+<pre><code>apps/
+  playground/         Vite + React frontend
+packages/
+  core/               Shared types, constants, wallet helpers
+  engine/             CompilerClient (HTTP client to build service)
+  shell/              Terminal emulator (interprets commands)
+  plugin-manager/     Project/file CRUD and templates
+  integrations/       Third-party integration stubs
+services/
+  compiler/           Express build service (Docker)
+  Dockerfile          Multi-stage image (toolchain + Node)</code></pre>
+
+<h2>What's Next</h2>
+<div class="feature-grid">
+  <div class="feature-card">
+    <h4>Real Job Queue</h4>
+    <p>BullMQ + Redis for persistent build history and horizontal scaling.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Build Cache</h4>
+    <p>Per-user S3 buckets for near-instant rebuilds.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Sandboxed Execution</h4>
+    <p>Firecracker microVMs for per-build isolation.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Shareable Links</h4>
+    <p>Encode full project state in a URL for tutorials and sharing.</p>
+  </div>
+</div>
+
+<p style="margin-top: 32px;">
+  <span class="tag">React 19</span>
+  <span class="tag">TypeScript 5</span>
+  <span class="tag">Vite 6</span>
+  <span class="tag">Express 4</span>
+  <span class="tag">Solana 1.18</span>
+  <span class="tag">Anchor 0.30</span>
+  <span class="tag">Rust 1.85</span>
+  <span class="tag">Docker</span>
+  <span class="tag">Vercel</span>
+  <span class="tag">Railway</span>
+</p>
+
+<div class="footer">
+  <p><a href="https://github.com/SURUJ404/Solphg">Solphg on GitHub</a> · Built with React, TypeScript, Express, Docker, and a lot of Solana.</p>
+</div>
+
+</div>
+</body>
+</html>
