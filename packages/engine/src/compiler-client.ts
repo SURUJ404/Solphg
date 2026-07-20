@@ -138,4 +138,20 @@ export class CompilerClient {
       return { error: `Cannot reach build service at ${this.apiUrl}. Start it with: docker compose up` }
     }
   }
+
+  async profile(bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string, instructionData?: string, cluster?: string): Promise<{
+    success?: boolean; totalCuConsumed?: number; cuCap?: number; cuUtilization?: number;
+    programId?: string; instructions?: any[]; error?: string; logs?: string[]
+  }> {
+    try {
+      const res = await fetch(`${this.apiUrl}/api/profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bytecodeBase64, authoritySecretKey, programKeypair, instructionData, cluster }),
+      })
+      return res.json()
+    } catch {
+      return { error: 'Cannot reach build service.' }
+    }
+  }
 }

@@ -77,6 +77,8 @@ export function App() {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false)
   const [cpiData, setCpiData] = useState<{ cpiTree?: any[]; programId?: string; rawLogs?: string; summary?: any } | null>(null)
   const [isDebuggingCpi, setIsDebuggingCpi] = useState(false)
+  const [profileData, setProfileData] = useState<any>(null)
+  const [isProfiling, setIsProfiling] = useState(false)
 
   // Browser wallet integration (Phantom, Solflare, Backpack)
   const browserWallet = useBrowserWallet()
@@ -345,6 +347,27 @@ export function App() {
     }
   }, [fetchBalance])
 
+  const handleProfile = useCallback(async () => {
+    if (!builtBytecode || !wallet || !wallet.secretKey) return
+    setIsProfiling(true)
+    const msg: TerminalLine = { id: crypto.randomUUID(), content: `Running CU profiler on local validator...`, type: 'system' }
+    setTerminalLines(prev => [...prev, msg])
+    const result = await compilerClient.profile(builtBytecode, wallet.secretKey, builtKeypair, undefined, cluster)
+    setProfileData(result)
+    if (result.error) {
+      const err: TerminalLine = { id: crypto.randomUUID(), content: `Profile failed: ${result.error}`, type: 'error' }
+      setTerminalLines(prev => [...prev, err])
+    } else {
+      const done: TerminalLine = {
+        id: crypto.randomUUID(),
+        content: `Profile complete — ${result.totalCuConsumed?.toLocaleString()} CU consumed (${result.cuUtilization}% of ${(result.cuCap || 1400000).toLocaleString()} cap)`,
+        type: 'output',
+      }
+      setTerminalLines(prev => [...prev, done])
+    }
+    setIsProfiling(false)
+  }, [builtBytecode, wallet, builtKeypair, cluster])
+
   buildRef.current = handleBuild
   deployRef.current = handleDeploy
 
@@ -571,6 +594,9 @@ export function App() {
             cpiSummary={cpiData?.summary}
             onDebugCpi={builtBytecode ? handleDebugCpi : undefined}
             isDebuggingCpi={isDebuggingCpi}
+            onProfile={builtBytecode ? handleProfile : undefined}
+            isProfiling={isProfiling}
+            profileData={profileData}
           />
           <TerminalPanel lines={terminalLines} onCommand={handleCommand} />
         </main>

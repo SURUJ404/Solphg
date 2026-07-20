@@ -617,3 +617,287 @@ html, body, #root {
   word-break: break-all;
   margin-bottom: 4px;
 }
+
+/* ─────────── CU Profiler ─────────── */
+.cu-profiler {
+  margin-top: 8px;
+  background: var(--bg-surface, #1e1e1e);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 11px;
+}
+
+.cu-profiler-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.cu-profiler-prog-id {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.cu-profiler-body {
+  padding: 8px 10px;
+}
+
+.cu-profiler-summary {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cu-profiler-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cu-profiler-metric-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.cu-profiler-metric-value {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.cu-profiler-metric-value.cu-warn {
+  color: #d29922;
+}
+
+.cu-profiler-metric-value.cu-over {
+  color: var(--error);
+}
+
+.cu-profiler-cap-bar {
+  margin-bottom: 10px;
+}
+
+.cu-profiler-cap-bar-bg {
+  position: relative;
+  height: 12px;
+  background: var(--bg-input);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cu-profiler-cap-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s;
+  background: var(--success);
+}
+
+.cu-profiler-cap-fill.cu-warn {
+  background: linear-gradient(90deg, var(--success), #d29922);
+}
+
+.cu-profiler-cap-fill.cu-over {
+  background: var(--error);
+}
+
+.cu-profiler-cap-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(255, 255, 255, 0.4);
+  z-index: 1;
+}
+
+.cu-profiler-cap-labels {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.cu-profiler-cap-label-80 {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.cu-profiler-tree {
+  margin-top: 4px;
+}
+
+.cu-profiler-tree-header {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.cu-profiler-tree-header span:first-child {
+  flex: 1;
+}
+
+.cu-profiler-row {
+  margin-bottom: 1px;
+}
+
+.cu-profiler-bar-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 22px;
+  cursor: default;
+}
+
+.cu-profiler-bar-wrap.cu-has-children {
+  cursor: pointer;
+}
+
+.cu-profiler-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  opacity: 0.85;
+  min-width: 2px;
+  transition: opacity 0.15s;
+}
+
+.cu-profiler-bar-wrap:hover .cu-profiler-bar {
+  opacity: 1;
+}
+
+.cu-profiler-bar-label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  width: 100%;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.5);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.cu-profiler-toggle {
+  width: 10px;
+  flex-shrink: 0;
+  font-size: 8px;
+}
+
+.cu-profiler-prog {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cu-profiler-cu {
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.cu-profiler-pct {
+  flex-shrink: 0;
+  width: 40px;
+  text-align: right;
+  opacity: 0.8;
+}
+
+.cu-profiler-fail {
+  flex-shrink: 0;
+  font-size: 8px;
+  color: var(--error);
+  font-weight: 700;
+  padding: 0 3px;
+  border: 1px solid var(--error);
+  border-radius: 2px;
+}
+
+.cu-profiler-hotspot-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #d29922;
+  color: #000;
+  font-weight: 700;
+  font-size: 9px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.cu-profiler-children {
+  padding-left: 0;
+}
+
+.cu-profiler-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.cu-profiler-error {
+  padding: 12px;
+  color: var(--error);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+}
+
+.cu-profiler-hotspots {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.cu-profiler-hotspots-title {
+  font-size: 10px;
+  font-weight: 600;
+  color: #d29922;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cu-profiler-hotspot-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.cu-profiler-hotspot-prog {
+  color: var(--text-primary);
+}
+
+.cu-profiler-hotspot-cu {
+  color: #d29922;
+}

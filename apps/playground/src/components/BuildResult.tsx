@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { AccountVisualizer } from './AccountVisualizer.js'
 import { CpiDebugView, CpiLogParser } from './CpiDebugView.js'
+import { CuProfiler } from './CuProfiler.js'
 
 interface BuildResultData {
   success: boolean
@@ -21,6 +22,17 @@ interface SimResult {
   error?: string
 }
 
+interface ProfileData {
+  success?: boolean
+  totalCuConsumed?: number
+  cuCap?: number
+  cuUtilization?: number
+  programId?: string
+  instructions?: any[]
+  error?: string
+  logs?: string[]
+}
+
 interface Props {
   result: BuildResultData | null
   onDeploy: () => void
@@ -36,9 +48,12 @@ interface Props {
   cpiSummary?: any
   onDebugCpi?: () => void
   isDebuggingCpi?: boolean
+  onProfile?: () => void
+  isProfiling?: boolean
+  profileData?: ProfileData | null
 }
 
-export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecretKey, simulation, isSimulating, cluster, cpiTree, cpiProgramId, cpiRawLogs, cpiSummary, onDebugCpi, isDebuggingCpi }: Props) {
+export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecretKey, simulation, isSimulating, cluster, cpiTree, cpiProgramId, cpiRawLogs, cpiSummary, onDebugCpi, isDebuggingCpi, onProfile, isProfiling, profileData }: Props) {
   const [showVisualizer, setShowVisualizer] = useState(false)
   if (!result) return null
 
@@ -109,10 +124,19 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
                   {isDebuggingCpi ? 'Tracing CPIs...' : 'Trace CPI'}
                 </button>
               )}
+              {onProfile && (
+                <button className="btn btn-ghost btn-sm" onClick={onProfile} disabled={isProfiling} style={{ fontSize: 11 }}>
+                  {isProfiling ? 'Profiling...' : 'Profile CU'}
+                </button>
+              )}
             </div>
 
             {showVisualizer && result.programId && (
               <AccountVisualizer programId={result.programId} cluster={cluster} />
+            )}
+
+            {profileData && (
+              <CuProfiler data={profileData} onClose={() => {}} />
             )}
 
             {cpiTree !== undefined && (
@@ -134,3 +158,4 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
     </div>
   )
 }
+

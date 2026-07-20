@@ -308,6 +308,98 @@ interface CpiNode {
   children: CpiNode[]
 }
 
+interface CpuProfileNode {
+  programId: string
+  cuConsumed: number
+  depth: number
+  success: boolean
+  error?: string
+  children: CpuProfileNode[]
+}
+
+function computeOwnCu(node: CpuProfileNode): { nodeCu: number; ownCu: number } {
+  const childrenCu = node.children.reduce((sum, c) => sum + computeOwnCu(c).nodeCu, 0)
+  return { nodeCu: node.cuConsumed, ownCu: node.cuConsumed - childrenCu }
+}
+
+function enhanceProfileTree(nodes: CpuProfileNode[], totalCu: number): any[] {
+  return nodes.map(n => {
+    const { ownCu } = computeOwnCu(n)
+    const pct = totalCu > 0 ? Math.round((n.cuConsumed / totalCu) * 10000) / 100 : 0
+    return {
+      programId: n.programId,
+      cuConsumed: n.cuConsumed,
+      ownCu,
+      depth: n.depth,
+      success: n.success,
+      error: n.error,
+      percentage: pct,
+      isHotspot: pct > 20,
+      children: enhanceProfileTree(n.children, totalCu),
+    }
+  })
+}
+
+function parseCpuProfileLogs(logs: string[]): { tree: any[]; totalCu: number } {
+  const roots: CpuProfileNode[] = []
+  const stack: CpuProfileNode[] = []
+
+  for (const line of logs) {
+    const invokeMatch = line.match(/Program\s+(\w+)\s+invoke\s+\[(\d+)\]/)
+    if (invokeMatch) {
+      const node: CpuProfileNode = {
+        programId: invokeMatch[1],
+        cuConsumed: 0,
+        depth: parseInt(invokeMatch[2]),
+        success: false,
+        children: [],
+      }
+      if (node.depth === 1) {
+        roots.push(node)
+        stack.length = 0
+        stack.push(node)
+      } else if (stack.length > 0) {
+        stack[stack.length - 1].children.push(node)
+        stack.push(node)
+      }
+      continue
+    }
+
+    const cuMatch = line.match(/Program\s+(\w+)\s+consumed\s+(\d+)\s+of\s+(\d+)/)
+    if (cuMatch) {
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i].programId === cuMatch[1]) {
+          stack[i].cuConsumed = parseInt(cuMatch[2])
+          break
+        }
+      }
+      continue
+    }
+
+    const successMatch = line.match(/Program\s+(\w+)\s+success\b/)
+    if (successMatch && stack.length > 0) {
+      if (stack[stack.length - 1].programId === successMatch[1]) {
+        stack[stack.length - 1].success = true
+        stack.pop()
+      }
+      continue
+    }
+
+    const errMatch = line.match(/Program\s+(\w+)\s+failed:\s*(.+)/)
+    if (errMatch && stack.length > 0) {
+      if (stack[stack.length - 1].programId === errMatch[1]) {
+        stack[stack.length - 1].success = false
+        stack[stack.length - 1].error = errMatch[2].trim()
+        stack.pop()
+      }
+      continue
+    }
+  }
+
+  const totalCu = roots.reduce((sum, r) => sum + r.cuConsumed, 0)
+  return { tree: enhanceProfileTree(roots, totalCu), totalCu }
+}
+
 function parseCpiLogs(logs: string): CpiNode[] {
   const roots: CpiNode[] = []
   const stack: CpiNode[] = []
@@ -553,6 +645,143 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
     res.json({ error: msg });
   } finally {
     fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
+app.post("/api/profile", async (req: Request, res: Response) => {
+  const { bytecodeBase64, programKeypair, authoritySecretKey, instructionData } = req.body;
+  const tmpDir = path.join("/tmp", `profile-${uuidv4()}`);
+
+  let ledgerDir = "";
+  try {
+    await fs.mkdir(tmpDir, { recursive: true });
+
+    const programPath = path.join(tmpDir, "program.so");
+    const programKpPath = path.join(tmpDir, "program-kp.json");
+    const authorityPath = path.join(tmpDir, "authority.json");
+
+    const soBytes = Buffer.from(bytecodeBase64, "base64");
+    await fs.writeFile(programPath, soBytes);
+
+    if (!authoritySecretKey || typeof authoritySecretKey !== "string") {
+      return res.json({ error: "authoritySecretKey is required" });
+    }
+    const authorityBytes = Buffer.from(authoritySecretKey, "hex");
+    if (authorityBytes.length !== 64) {
+      return res.json({ error: "authoritySecretKey must be 64 bytes (hex)" });
+    }
+    await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
+
+    if (programKeypair) {
+      const kpBytes = Buffer.from(programKeypair, "base64");
+      await fs.writeFile(programKpPath, JSON.stringify(Array.from(kpBytes)));
+    } else {
+      execSync(`solana-keygen new --no-bip39-passphrase --force --silent --outfile ${programKpPath}`, { timeout: 10_000 });
+    }
+
+    const programId = execSync(`solana-keygen pubkey ${programKpPath}`, { encoding: "utf8", timeout: 5_000 }).toString().trim();
+
+    // Phase 1: Start local validator
+    let validator: any = null;
+    let ready = false;
+    ledgerDir = path.join("/tmp", `profile-ledger-${uuidv4()}`);
+    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
+    const killValidator = () => { try { if (validator) { process.kill(-validator.pid); } } catch {} };
+
+    try {
+      const { spawn } = require("child_process");
+      validator = spawn("solana-test-validator", [
+        "--reset", "--quiet", `--ledger`, ledgerDir,
+        `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
+      ], { stdio: "ignore", detached: true });
+
+      for (let i = 0; i < 6; i++) {
+        await sleep(800);
+        try {
+          execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
+          ready = true;
+          break;
+        } catch {}
+      }
+    } catch {}
+    if (!ready) { killValidator(); return res.json({ error: "Local validator unavailable" }); }
+
+    // Phase 1: Deploy program to local validator
+    try {
+      execSync(
+        `solana program deploy ${programPath} --program-id ${programKpPath} --url http://127.0.0.1:${rpcPort} 2>&1`,
+        { timeout: 60_000, cwd: tmpDir, encoding: "utf8" }
+      );
+    } catch (deployErr: any) {
+      killValidator();
+      return res.json({ error: `deploy to local validator failed: ${deployErr.stderr || deployErr.message}` });
+    }
+
+    // Phase 1-2: Construct and simulate transaction
+    let totalCuConsumed = 0;
+    let cuTree: any[] = [];
+    let simLogs: string[] = [];
+    let simError: string | null = null;
+
+    try {
+      const { Connection, PublicKey, Transaction, TransactionInstruction, Keypair } = require("@solana/web3.js");
+      const connection = new Connection(`http://127.0.0.1:${rpcPort}`, "processed");
+      const feePayer = Keypair.fromSecretKey(new Uint8Array(authorityBytes));
+      const programPubkey = new PublicKey(programId);
+
+      const ix = new TransactionInstruction({
+        keys: [{ pubkey: feePayer.publicKey, isSigner: true, isWritable: true }],
+        programId: programPubkey,
+        data: instructionData ? Buffer.from(instructionData, "base64") : Buffer.alloc(0),
+      });
+
+      const tx = new Transaction();
+      tx.add(ix);
+      tx.feePayer = feePayer.publicKey;
+      const blockhash = await connection.getLatestBlockhash();
+      tx.recentBlockhash = blockhash.blockhash;
+
+      const simResult = await connection.simulateTransaction(tx, [feePayer], {
+        innerInstructions: true,
+        sigVerify: false,
+        commitment: "processed",
+      });
+
+      const sv = simResult.value;
+      simLogs = sv.logs || [];
+
+      if (sv.err) {
+        simError = typeof sv.err === "string" ? sv.err : JSON.stringify(sv.err);
+      }
+
+      // Parse CU from logs
+      const parsed = parseCpuProfileLogs(simLogs);
+      totalCuConsumed = sv.unitsConsumed || parsed.totalCu || 0;
+      cuTree = parsed.tree;
+    } catch (simErr: any) {
+      killValidator();
+      return res.json({ error: `simulation failed: ${simErr.message}` });
+    }
+
+    killValidator();
+
+    // Phase 2+5: Build enhanced response with hotspots
+    res.json({
+      success: !simError,
+      totalCuConsumed,
+      cuCap: 1_400_000,
+      cuUtilization: Math.round((totalCuConsumed / 1_400_000) * 10000) / 100,
+      programId,
+      instructions: cuTree,
+      error: simError,
+      logs: simLogs.slice(0, 200),
+    });
+  } catch (err: any) {
+    const msg = err.stderr || err.stdout || err.message || String(err);
+    res.json({ error: msg });
+  } finally {
+    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    if (ledgerDir) { fs.rm(ledgerDir, { recursive: true, force: true }).catch(() => {}); }
   }
 });
 
