@@ -81,6 +81,10 @@
     transition: background 0.15s;
   }
   .demo-link:hover { background: #75a9e0; text-decoration: none !important; }
+  .screenshots { text-align: center; margin: 32px 0; }
+  .screenshots a { display: inline-block; margin: 8px; border: 1px solid #30363d; border-radius: 8px; overflow: hidden; transition: border-color 0.2s, transform 0.2s; }
+  .screenshots a:hover { border-color: #58a6ff; transform: scale(1.02); }
+  .screenshots img { display: block; max-width: 100%; height: auto; border-radius: 7px; }
   .footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid #21262d; font-size: 0.85em; color: #484f58; text-align: center; }
   @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } h1 { font-size: 1.8em; } }
 </style>
@@ -96,6 +100,15 @@
 <h2>Why I Built It</h2>
 <p>Learning Solana development has a steep barrier to entry. Before you can write your first program, you need to install Rust, the Solana CLI, Anchor, set up a local validator, configure your IDE, and figure out devnet faucets. That's <strong>five steps</strong> before writing a single line of code.</p>
 <p>Solana Playground removes all of it. You write Rust in a Monaco editor, click <strong>"Build"</strong>, and get a compiled SBF program — all from your browser.</p>
+
+<div class="screenshots">
+  <a href="https://solphg-playground.vercel.app/" target="_blank" rel="noopener">
+    <img src="assets/ss1.png" alt="Solana Playground screenshot 1" />
+  </a>
+  <a href="https://solphg-playground.vercel.app/" target="_blank" rel="noopener">
+    <img src="assets/ss2.png" alt="Solana Playground screenshot 2" />
+  </a>
+</div>
 
 <!-- ============================================================ -->
 <h2>Tech Stack</h2>
