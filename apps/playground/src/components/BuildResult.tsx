@@ -104,11 +104,13 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
             )}
 
             <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-              {hasWallet && hasSecretKey && (
+              {hasWallet && (
                 <>
-                  <button className="btn btn-secondary btn-sm" onClick={onSimulate} disabled={isSimulating} style={{ fontSize: 11 }}>
-                    {isSimulating ? 'Simulating...' : 'Simulate Deploy'}
-                  </button>
+                  {hasSecretKey && (
+                    <button className="btn btn-secondary btn-sm" onClick={onSimulate} disabled={isSimulating} style={{ fontSize: 11 }}>
+                      {isSimulating ? 'Simulating...' : 'Simulate Deploy'}
+                    </button>
+                  )}
                   <button className="btn btn-primary btn-sm" onClick={onDeploy} disabled={simulation?.hasSufficientBalance === false}>
                     Deploy to {cluster}
                   </button>

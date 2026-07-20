@@ -147,18 +147,35 @@ export function App() {
       setTerminalLines(prev => [...prev, msg])
       return
     }
-    if (!wallet.secretKey) {
-      const msg: TerminalLine = { id: crypto.randomUUID(), content: 'Deploy requires a generated or imported wallet (browser wallets like Backpack cannot sign deployments). Generate a wallet in the Wallet panel.', type: 'error' }
-      setTerminalLines(prev => [...prev, msg])
-      return
+
+    let deploySecretKey = wallet.secretKey
+
+    if (!deploySecretKey) {
+      const info: TerminalLine = { id: crypto.randomUUID(), content: 'Browser wallets cannot sign deployments directly. Generating a temporary deploy keypair (funded via airdrop)...', type: 'system' }
+      setTerminalLines(prev => [...prev, info])
+
+      const mod = await import('@solana/web3.js') as any
+      const Keypair = mod.default?.Keypair ?? mod.Keypair
+      const tempKp = Keypair.generate()
+      const tempPubkey = tempKp.publicKey.toBase58()
+      const tempHex = Array.from(tempKp.secretKey as Uint8Array).map(b => b.toString(16).padStart(2, '0')).join('')
+
+      const funding: TerminalLine = { id: crypto.randomUUID(), content: `Funding temporary wallet ${tempPubkey} with 1 SOL...`, type: 'system' }
+      setTerminalLines(prev => [...prev, funding])
+
+      const fundResult = await compilerClient.airdrop(tempPubkey, 1)
+      if (fundResult.error) {
+        const err: TerminalLine = { id: crypto.randomUUID(), content: `Failed to fund deploy wallet: ${fundResult.error}`, type: 'error' }
+        setTerminalLines(prev => [...prev, err])
+        return
+      }
+
+      deploySecretKey = tempHex
     }
 
-    const msg: TerminalLine = { id: crypto.randomUUID(), content: 'Deploying program to devnet...', type: 'system' }
+    const msg: TerminalLine = { id: crypto.randomUUID(), content: `Deploying to ${cluster}...`, type: 'system' }
     setTerminalLines(prev => [...prev, msg])
-
-    const msg2: TerminalLine = { id: crypto.randomUUID(), content: `Deploying to ${cluster}...`, type: 'system' }
-    setTerminalLines(prev => [...prev, msg2])
-    const result = await compilerClient.deploy(builtBytecode, wallet.secretKey, builtKeypair, cluster)
+    const result = await compilerClient.deploy(builtBytecode, deploySecretKey, builtKeypair, cluster)
     if (result.error) {
       const err: TerminalLine = { id: crypto.randomUUID(), content: `Deploy failed: ${result.error}`, type: 'error' }
       setTerminalLines(prev => [...prev, err])
@@ -166,7 +183,7 @@ export function App() {
       const done: TerminalLine = { id: crypto.randomUUID(), content: `Deploy tx: ${result.signature}`, type: 'output' }
       setTerminalLines(prev => [...prev, done])
     }
-  }, [builtBytecode, wallet, cluster])
+  }, [builtBytecode, wallet, builtKeypair, cluster])
 
   const handleClusterChange = useCallback((name: string) => {
     setCluster(name)
