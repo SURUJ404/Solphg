@@ -630,8 +630,8 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
     );
 
     const deployCmd = programKeypair
-      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`
-      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`;
+      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} --chunk-size 65536 2>&1`
+      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} --chunk-size 65536 2>&1`;
 
     const output = execSync(deployCmd, { cwd: tmpDir, timeout: 120_000, encoding: "utf8" }).toString().trim();
 
@@ -704,7 +704,19 @@ app.post("/api/profile", async (req: Request, res: Response) => {
         } catch {}
       }
     } catch {}
-    if (!ready) { killValidator(); return res.json({ error: "Local validator unavailable" }); }
+    if (!ready) {
+      killValidator();
+      return res.json({
+        success: false,
+        totalCuConsumed: 0,
+        cuCap: 1_400_000,
+        programId,
+        instructions: [],
+        error: null,
+        logs: [],
+        note: "Automatic CU profiling requires solana-test-validator which is not available in this environment. Build and deploy your program, then run `solana simulate` locally and paste the output into the CPI Debug tab (Paste Raw Logs mode) to analyze CU consumption.",
+      });
+    }
 
     // Phase 1: Deploy program to local validator
     try {
