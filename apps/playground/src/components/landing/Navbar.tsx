@@ -9,7 +9,6 @@ export function Navbar({ onLaunch, onDocs }: { onLaunch: () => void; onDocs?: ()
       </div>
       <div className="l-navbar-links">
         <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
         <a href="#docs" onClick={(e) => { e.preventDefault(); onDocs?.() }}>Docs</a>
         <a href="#community">Community</a>
       </div>
