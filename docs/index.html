@@ -13,16 +13,20 @@
     line-height: 1.7;
     font-size: 16px;
   }
-  .container { max-width: 800px; margin: 0 auto; padding: 40px 24px 80px; }
-  h1 { font-size: 2.2em; font-weight: 700; color: #f0f6fc; margin-bottom: 8px; letter-spacing: -0.5px; }
-  h2 { font-size: 1.5em; font-weight: 600; color: #f0f6fc; margin: 40px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #21262d; }
-  h3 { font-size: 1.15em; font-weight: 600; color: #f0f6fc; margin: 24px 0 8px; }
+  .container { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+  h1 { font-size: 2.4em; font-weight: 700; color: #f0f6fc; margin-bottom: 8px; letter-spacing: -0.5px; }
+  h2 { font-size: 1.5em; font-weight: 600; color: #f0f6fc; margin: 48px 0 16px; padding-bottom: 8px; border-bottom: 1px solid #21262d; }
+  h3 { font-size: 1.15em; font-weight: 600; color: #f0f6fc; margin: 28px 0 8px; }
+  h4 { font-size: 1em; font-weight: 600; color: #f0f6fc; margin: 20px 0 6px; }
   p { margin-bottom: 16px; color: #8b949e; }
+  ul, ol { margin-bottom: 16px; padding-left: 20px; color: #8b949e; }
+  li { margin-bottom: 4px; }
   a { color: #58a6ff; text-decoration: none; }
   a:hover { text-decoration: underline; }
+  strong { color: #f0f6fc; }
   code {
     font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-    font-size: 0.9em;
+    font-size: 0.88em;
     background: #161b22;
     padding: 2px 6px;
     border-radius: 4px;
@@ -35,10 +39,10 @@
     padding: 16px 20px;
     overflow-x: auto;
     margin-bottom: 20px;
-    font-size: 0.85em;
+    font-size: 0.83em;
     line-height: 1.5;
   }
-  pre code { background: none; padding: 0; }
+  pre code { background: none; padding: 0; font-size: 1em; }
   .subtitle { font-size: 1.1em; color: #8b949e; margin-bottom: 32px; }
   .meta { font-size: 0.9em; color: #484f58; margin-bottom: 40px; }
   .tag {
@@ -47,13 +51,13 @@
     background: #1f2937;
     border: 1px solid #30363d;
     border-radius: 12px;
-    font-size: 0.8em;
+    font-size: 0.78em;
     color: #8b949e;
     margin-right: 6px;
     margin-bottom: 6px;
   }
-  .api-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.9em; }
-  .api-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #30363d; color: #8b949e; font-weight: 600; }
+  .api-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.88em; }
+  .api-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #30363d; color: #8b949e; font-weight: 600; font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; }
   .api-table td { padding: 8px 12px; border-bottom: 1px solid #21262d; color: #c9d1d9; font-family: 'SFMono-Regular', monospace; font-size: 0.9em; }
   .api-table td:first-child { color: #58a6ff; white-space: nowrap; }
   .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
@@ -65,9 +69,20 @@
   }
   .feature-card h4 { color: #f0f6fc; margin-bottom: 6px; font-size: 1em; }
   .feature-card p { font-size: 0.9em; color: #8b949e; margin: 0; }
+  .flow-arrow { color: #30363d; margin: 0 4px; }
+  .demo-link {
+    display: inline-block;
+    padding: 2px 12px;
+    background: #569cd6;
+    color: #fff !important;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.85em;
+    transition: background 0.15s;
+  }
+  .demo-link:hover { background: #75a9e0; text-decoration: none !important; }
   .footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid #21262d; font-size: 0.85em; color: #484f58; text-align: center; }
-  @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } }
-  .emoji-icon { margin-right: 4px; }
+  @media (max-width: 600px) { .feature-grid { grid-template-columns: 1fr; } h1 { font-size: 1.8em; } }
 </style>
 </head>
 <body>
@@ -77,102 +92,571 @@
 <p class="subtitle">A browser-based IDE for writing, compiling, and deploying Solana Anchor programs — no local toolchain required.</p>
 <p class="meta">By <strong>Suruj Kalita</strong> · Open source · <a href="https://github.com/SURUJ404/Solphg">GitHub</a></p>
 
+<!-- ============================================================ -->
 <h2>Why I Built It</h2>
-<p>Learning Solana development has a steep barrier to entry. Before you can write your first program, you need to install Rust, Solana CLI, Anchor, set up a local validator, configure your IDE, and figure out devnet faucets. That's five steps before writing a single line of code.</p>
-<p>Solana Playground removes all of it. You write Rust in a Monaco editor, click "Build," and get a compiled SBF program — all from your browser.</p>
+<p>Learning Solana development has a steep barrier to entry. Before you can write your first program, you need to install Rust, the Solana CLI, Anchor, set up a local validator, configure your IDE, and figure out devnet faucets. That's <strong>five steps</strong> before writing a single line of code.</p>
+<p>Solana Playground removes all of it. You write Rust in a Monaco editor, click <strong>"Build"</strong>, and get a compiled SBF program — all from your browser.</p>
 
-<h2>System Architecture</h2>
-<pre><code>apps/playground (Vite + React SPA) ─── HTTP ─── services/compiler (Express + Solana CLI)</code></pre>
+<!-- ============================================================ -->
+<h2>Tech Stack</h2>
 
+<h3>Frontend</h3>
 <table class="api-table">
-  <tr><th>Method</th><th>Path</th><th>Purpose</th></tr>
-  <tr><td>POST</td><td>/api/build</td><td>Compile Rust → SBF bytecode via <code>cargo build-sbf</code></td></tr>
-  <tr><td>POST</td><td>/api/deploy</td><td>Deploy to devnet/testnet/mainnet</td></tr>
-  <tr><td>POST</td><td>/api/simulate</td><td>Pre-deploy simulation (rent, balance, conflict check)</td></tr>
-  <tr><td>POST</td><td>/api/debug-cpi</td><td>CPI trace parser (logs or auto-trace)</td></tr>
-  <tr><td>POST</td><td>/api/profile</td><td>CU profiler — flamechart with per-instruction breakdown</td></tr>
-  <tr><td>POST</td><td>/api/airdrop</td><td>Multi-strategy airdrop (faucet → RPC → client fallback)</td></tr>
-  <tr><td>GET</td><td>/api/balance/:address</td><td>SOL balance for any cluster</td></tr>
+  <tr><th>Layer</th><th>Technology</th><th>Version</th></tr>
+  <tr><td>UI Framework</td><td>React</td><td>18.3</td></tr>
+  <tr><td>Build Tool</td><td>Vite</td><td>5.4</td></tr>
+  <tr><td>Language</td><td>TypeScript</td><td>5.5</td></tr>
+  <tr><td>Editor</td><td>Monaco Editor (@monaco-editor/react)</td><td>4.6</td></tr>
+  <tr><td>Web3 Client</td><td>@solana/web3.js</td><td>2.0</td></tr>
+  <tr><td>Hosting</td><td>Vercel</td><td>—</td></tr>
 </table>
 
-<h2>The Airdrop Challenge</h2>
-<p>The public <code>requestAirdrop</code> endpoint is aggressively rate-limited. I built a 3-tier fallback system:</p>
+<h3>Backend (Compiler Service)</h3>
+<table class="api-table">
+  <tr><th>Layer</th><th>Technology</th><th>Version</th></tr>
+  <tr><td>Runtime</td><td>Node.js</td><td>20 (Docker)</td></tr>
+  <tr><td>Framework</td><td>Express</td><td>4.19</td></tr>
+  <tr><td>Solana CLI</td><td>solana-cli</td><td>1.18.18</td></tr>
+  <tr><td>Anchor</td><td>avm + anchor-cli</td><td>0.30.1</td></tr>
+  <tr><td>Rust (build)</td><td>rustc</td><td>1.85.1</td></tr>
+  <tr><td>Rust (runtime)</td><td>rustc</td><td>1.75.0</td></tr>
+  <tr><td>platform-tools</td><td>SBF toolchain</td><td>v1.41</td></tr>
+  <tr><td>Web3 Client</td><td>@solana/web3.js</td><td>1.0</td></tr>
+  <tr><td>Hosting</td><td>Railway (Docker)</td><td>—</td></tr>
+</table>
 
-<div class="feature-grid">
-  <div class="feature-card">
-    <h4>Tier 1 — Faucet Wallet</h4>
-    <p>Pre-funded wallet sends a regular Solana transfer. No rate limits on transfers — instant when funded.</p>
-  </div>
-  <div class="feature-card">
-    <h4>Tier 2 — RPC Pool</h4>
-    <p>Shuffled RPC endpoints with dual strategies (CLI + web3.js). Hard 25s deadline to fail fast.</p>
-  </div>
-  <div class="feature-card">
-    <h4>Tier 3 — Browser Fallback</h4>
-    <p>Client-side <code>requestAirdrop</code> from the user's IP, which has its own rate-limit pool.</p>
-  </div>
-  <div class="feature-card">
-    <h4>CU Profiler</h4>
-    <p>Simulate transactions, parse runtime logs, render an icicle chart with hotspot detection.</p>
-  </div>
-</div>
+<h3>Shared Packages (npm Workspaces)</h3>
+<table class="api-table">
+  <tr><th>Package</th><th>Role</th></tr>
+  <tr><td>@solshift/core</td><td>Types, constants, cluster config, wallet encryption utilities</td></tr>
+  <tr><td>@solshift/engine</td><td>CompilerClient — HTTP client for all build service endpoints</td></tr>
+  <tr><td>@solshift/shell</td><td>TerminalEmulator — interprets solana + anchor CLI commands in-browser</td></tr>
+  <tr><td>@solshift/plugin-manager</td><td>ProjectManager — scaffold, CRUD, localStorage persistence</td></tr>
+  <tr><td>@solshift/integrations</td><td>IDL client generator, PDA derivation, Borsh serialization</td></tr>
+</table>
 
-<h2>How The Build Pipeline Works</h2>
-<pre><code>Editor → CompilerClient → POST /api/build → Express → scaffold Anchor project → cargo build-sbf → return .so (base64) + programId + keypair</code></pre>
-<p>Cold builds take ~2 minutes (dependency download). Warm builds take ~15 seconds with cached lockfiles. The Docker container bundles Solana CLI 1.18.18, Anchor 0.30.1, and Rust 1.85.</p>
+<!-- ============================================================ -->
+<h2>System Design — Architecture Overview</h2>
 
-<h2>CU Profiling — The Latest Feature</h2>
-<p>The most recent addition is a Compute Unit profiler. The backend deploys your program to a local validator, simulates a transaction, parses the runtime logs for every <code>Program X consumed N of M compute units</code> line, and returns a tree with per-instruction CU consumption.</p>
-<p>The frontend renders an icicle chart where bar width = CU cost and nesting = CPI depth. Instructions consuming >20% of total CU are flagged as <strong>hotspots</strong>. A reference line at 1.4M CU shows how close you are to the transaction cap.</p>
+<pre><code>┌─────────────────────────────────────────────────────────────┐
+│ Browser (Vercel CDN)                                        │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ React SPA (Vite)                                      │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌────────┐ ┌───────────┐ │  │
+│  │  │  Monaco  │ │ Terminal │ │ Wallet │ │ Build/    │ │  │
+│  │  │  Editor  │ │ Emulator │ │ Panel  │ │ Deploy UI │ │  │
+│  │  └────┬─────┘ └────┬─────┘ └────────┘ └─────┬─────┘ │  │
+│  │       └────────────┴──────────┬──────────────┘       │  │
+│  │                        ┌──────┴──────┐               │  │
+│  │                        │ Compiler    │               │  │
+│  │                        │ Client      │               │  │
+│  │                        └──────┬──────┘               │  │
+│  └───────────────────────────────┼───────────────────────┘  │
+│                                  │ HTTP (fetch)              │
+└──────────────────────────────────┼───────────────────────────┘
+                                   ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Railway (Docker Container)                                  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │ Express Server                                         │  │
+│  │  POST /api/build    → buildService.ts → cargo build-sbf│  │
+│  │  POST /api/deploy   → solana program deploy            │  │
+│  │  POST /api/simulate → balance + rent + conflict check  │  │
+│  │  POST /api/debug-cpi→ CPI log parser / local validator │  │
+│  │  POST /api/profile  → local validator + simulate + CU  │  │
+│  │  POST /api/airdrop  → faucet → RPC pool → fallback    │  │
+│  │  GET  /api/balance  → solana balance                   │  │
+│  └──────────────────────┬────────────────────────────────┘  │
+│                         │                                    │
+│  ┌──────────────────────▼────────────────────────────────┐  │
+│  │ Docker Image (rust:1.75-slim-bookworm)                 │  │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌─────────┐ │  │
+│  │  │ Solana   │ │ Anchor   │ │ Rust     │ │platform-│ │  │
+│  │  │ CLI 1.18 │ │ 0.30.1   │ │ 1.85     │ │tools    │ │  │
+│  │  └──────────┘ └──────────┘ └──────────┘ └─────────┘ │  │
+│  └──────────────────────────────────────────────────────┘  │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+              ┌────────────────────────┐
+              │ Solana Devnet / Testnet│
+              │ (RPC API)              │
+              └────────────────────────┘
+</code></pre>
 
-<h2>The Monorepo</h2>
-<pre><code>apps/
-  playground/         Vite + React frontend
-packages/
-  core/               Shared types, constants, wallet helpers
-  engine/             CompilerClient (HTTP client to build service)
-  shell/              Terminal emulator (interprets commands)
-  plugin-manager/     Project/file CRUD and templates
-  integrations/       Third-party integration stubs
-services/
-  compiler/           Express build service (Docker)
-  Dockerfile          Multi-stage image (toolchain + Node)</code></pre>
+<h3>Frontend — Component Tree & State Management</h3>
+<p>The frontend manages all state in a single <code>App</code> component using React hooks (<code>useState</code>, <code>useCallback</code>, <code>useRef</code>, <code>useEffect</code>). No external state library — the application's state surface is small enough that prop drilling and callback passing suffice.</p>
 
+<pre><code>App
+├── LandingPage (marketing site, toggled via showLanding boolean)
+└── Playground
+    ├── Toolbar
+    │   ├── Cluster selector (devnet/testnet/mainnet)
+    │   ├── Build button
+    │   ├── Deploy button
+    │   └── API status dot
+    ├── Icon Sidebar (files | search | docs | settings)
+    ├── Side Panel
+    │   ├── FileExplorer (file tree + project files)
+    │   ├── WalletPanel (generate, import, connect browser wallet, airdrop)
+    │   └── DocsPanel (faucet docs, funding instructions)
+    ├── EditorPanel (Monaco editor, language-aware)
+    ├── BuildResult (build output + simulate + deploy + CPI + Profile CU)
+    └── TerminalPanel (command input + scrollable output)</code></pre>
+
+<h4>Key State</h4>
+<pre><code>interface AppState {
+  project: SolpgProject | null         // Current project + files
+  activeFile: SolpgFile | null         // Currently open in editor
+  wallet: WalletState | null           // publicKey + secretKey + connected
+  balance: number | null               // Devnet SOL balance
+  builtBytecode: string | null         // Compiled .so (base64)
+  builtKeypair: string | undefined     // Program keypair (base64)
+  buildResult: BuildResultData | null  // Build output info
+  terminalLines: TerminalLine[]        // Terminal history
+  isBuilding / isAirdropping / isSimulating / isProfiling
+  apiConnected: boolean | undefined
+  activeSidebar: 'files' | 'search' | 'docs' | 'settings' | ''
+  cluster: 'devnet' | 'testnet' | 'mainnet-beta'
+  profileData / cpiData / simulation   // Analysis results
+}</code></pre>
+
+<h3>Backend — Express Request Lifecycle</h3>
+<p>Each API request follows the same pattern:</p>
+<ol>
+  <li><strong>Validation</strong> — Check required fields, keypair byte lengths, file constraints</li>
+  <li><strong>Scaffolding</strong> — Create a UUID-temp directory under <code>/tmp</code></li>
+  <li><strong>Execution</strong> — Run the relevant CLI command (<code>cargo build-sbf</code>, <code>solana program deploy</code>, etc.) via <code>execSync</code> with timeouts</li>
+  <li><strong>Cleanup</strong> — Remove temp directory in <code>finally</code> block</li>
+  <li><strong>Response</strong> — Return JSON with success/error and relevant data</li>
+</ol>
+<p>The server has a concurrency limit (<code>activeBuilds</code> counter) — max 2 concurrent builds. Requests exceeding this get a 429 "build queue full" response.</p>
+
+<!-- ============================================================ -->
+<h2>Storage & Data Persistence (No Traditional Database)</h2>
+<p>There is <strong>no database</strong> — no PostgreSQL, no Redis, no MongoDB. The architecture deliberately avoids persistent storage for simplicity and cost. Data lives in three places:</p>
+
+<h3>1. Browser localStorage</h3>
+<table class="api-table">
+  <tr><th>Key</th><th>Content</th><th>Encrypted?</th></tr>
+  <tr><td>solpg_wallet</td><td>JSON-serialized WalletState (publicKey + secretKey + connected flag)</td><td>✅ XOR cipher with session-derived key</td></tr>
+  <tr><td>solpg_projects</td><td>JSON array of SolpgProject (files + metadata)</td><td>No (no sensitive data)</td></tr>
+  <tr><td>solpg_cluster</td><td>Cluster name string ('devnet' | 'testnet' | 'mainnet-beta')</td><td>No</td></tr>
+</table>
+
+<h3>2. Browser sessionStorage</h3>
+<table class="api-table">
+  <tr><th>Key</th><th>Content</th><th>Why sessionStorage?</th></tr>
+  <tr><td>solpg_enc_key</td><td>32-byte random XOR key (hex-encoded)</td><td>Cleared on tab close — wallet cipher key never persists</td></tr>
+</table>
+
+<h3>3. /tmp on the Docker Container</h3>
+<p>Each API request creates a UUID-named directory under <code>/tmp</code> for temporary files (keypairs, program binaries, Anchor project scaffolding). These are cleaned up in the <code>finally</code> block of every request handler.</p>
+
+<h3>Wallet Encryption Scheme</h3>
+<pre><code>// On tab open: generate 32 random bytes → store in sessionStorage
+// On wallet save:
+//   1. JSON.stringify({ publicKey, secretKey, connected })
+//   2. XOR each byte of the JSON string with key[i % 32]
+//   3. Hex-encode the XOR'd bytes
+//   4. Store in localStorage as 'solpg_wallet'
+//
+// On wallet load: reverse the process
+// On tab close: sessionStorage is wiped → key is lost → ciphertext is useless
+//
+// This ensures secret keys never persist in localStorage as plaintext
+// after the browser tab is closed.</code></pre>
+
+<!-- ============================================================ -->
+<h2>API Design — Endpoint Details</h2>
+
+<h3>POST /api/build — The Core Pipeline</h3>
+<pre><code>Request:  { programName: string, files: { path: string, content: string }[] }
+Response: { success: boolean, program?: string (base64 .so), programId?: string,
+            programKeypair?: string (base64), error?: string, logs?: string }
+
+Flow:
+  1. Validate programName (lowercase snake_case, 2-64 chars) and files (max 40, max 200KB each)
+  2. Scaffold project skeleton under /tmp/{uuid}:
+     - programs/{name}/src/  ← user's .rs files
+     - programs/{name}/Cargo.toml  ← auto-generated with anchor-lang dep
+     - Anchor.toml
+     - Cargo.toml (workspace)
+  3. Copy pre-built Cargo.lock (cached from Docker build) for faster dependency resolution
+  4. Run `cargo generate-lockfile --offline`
+  5. Downgrade lockfile v4 → v3 (compatibility)
+  6. Run `CARGO_TARGET_DIR=... cargo build-sbf --offline`
+  7. Read artifacts from shared CARGO_TARGET_DIR:
+     - {name}.so → base64 encode
+     - {name}-keypair.json → base64 encode + derive programId via solana-keygen
+  8. Clean up temp dir
+  9. Return result
+
+Validation:
+  - programName must match /^[a-z][a-z0-9_-]{1,63}$/
+  - File paths must be relative, no '..' traversal
+  - Max 40 files, max 200KB per file
+  - Timeout: 300 seconds (cargo build can be slow on cold starts)</code></pre>
+
+<h3>POST /api/deploy</h3>
+<pre><code>Request:  { bytecodeBase64: string, authoritySecretKey: string (hex 64 bytes),
+            programKeypair?: string (base64), cluster?: string }
+Response: { signature?: string, programId?: string, error?: string }
+
+Flow:
+  1. Decode + validate authoritySecretKey (must be exactly 64 bytes)
+  2. Write authority keypair JSON + program binary to /tmp
+  3. If programKeypair provided: write it → deterministic program ID
+  4. Run: solana program deploy --chunk-size 65536 --url {cluster}
+  5. Parse "Program Id: &lt;address&gt;" from output
+  6. Return transaction output + program ID
+
+Security:
+  - The authority's secret key is transmitted to the backend (hex-encoded over HTTPS)
+  - Browser wallets (Phantom) now supported via temp keypair generation + airdrop funding</code></pre>
+
+<h3>POST /api/airdrop — Multi-Tier Fallback</h3>
+<pre><code>Request:  { address: string, amount?: number, cluster?: string }
+Response: { signature?: string, error?: string }
+
+Tier 1 — Faucet Transfer (instant, no rate limits):
+  IF FAUCET_SECRET_KEY is set and has SOL:
+    solana transfer --keypair faucet.json {address} {amount}
+  ELSE fall through
+
+Tier 2 — RPC Airdrop Pool (25s deadline):
+  For each RPC in shuffled pool [DEVNET_RPC_URL, api.devnet.solana.com, helius]:
+    Approach A: solana airdrop {amount} {address} --url {rpc} (20s timeout)
+    Approach B: Connection.requestAirdrop(pubkey, lamports) (15s timeout)
+    Break on first success
+
+Tier 3 — Client-Side Fallback (user's browser IP):
+  Frontend retries requestAirdrop from user's browser
+  (separate rate-limit pool from Railway's IP)
+
+Error handling:
+  Returns actionable message with faucet funding instructions on total failure</code></pre>
+
+<h3>POST /api/profile — CU Profiler</h3>
+<pre><code>Request:  { bytecodeBase64: string, authoritySecretKey: string (hex 64 bytes),
+            programKeypair?: string, instructionData?: string (base64) }
+Response: { success: boolean, totalCuConsumed: number, cuCap: number,
+            cuUtilization: number, programId: string,
+            instructions: CpuProfileNode[], error?: string, logs: string[] }
+
+CpuProfileNode:
+  { programId: string, cuConsumed: number, ownCu: number,
+    depth: number, success: boolean, error?: string,
+    percentage: number, isHotspot: boolean (>20% of total),
+    children: CpuProfileNode[] }
+
+Flow:
+  1. Write program + keypairs to /tmp
+  2. Start solana-test-validator (local, ephemeral)
+  3. Deploy program to local validator
+  4. Construct Transaction with program instruction
+  5. simulateTransaction({ innerInstructions: true, sigVerify: false })
+  6. Parse logs with regex stack-based parser:
+     - /Program (\w+) invoke \[(\d+)\]/     → push node
+     - /Program (\w+) consumed (\d+) of (\d+)/ → assign CU
+     - /Program (\w+) success/               → pop, mark success
+     - /Program (\w+) failed: (.+)/          → pop, mark error
+  7. Compute own CU (cuConsumed - sum of children's cuConsumed)
+  8. Identify hotspots (>20% = isHotspot: true)
+  9. Return tree + total + utilization %
+
+Fallback:
+  If solana-test-validator unavailable → return helpful message + empty tree</code></pre>
+
+<h3>POST /api/simulate — Pre-Deploy Simulation</h3>
+<pre><code>Request:  { bytecodeBase64, authoritySecretKey, programKeypair?, cluster? }
+Response: { success: boolean, bytecodeSize, estimatedRentSol, authorityBalance,
+            hasSufficientBalance, programExists, output }
+
+Logic:
+  - Get authority balance from cluster RPC
+  - Derive program ID from keypair
+  - Check if program already exists on chain (upgrade vs fresh deploy)
+  - Estimate rent: ceil((100 + bytecodeSize) / 1024) * 0.0035 SOL
+  - Return comparison: balance >= rent + txFee?
+  - Shows user what will happen before they spend SOL</code></pre>
+
+<h3>POST /api/debug-cpi — CPI Trace Analysis</h3>
+<pre><code>Two modes:
+  Mode 1 — Parse Logs: { rawLogs: string }
+    → Parses simulation log output into CPI call tree
+    → Returns { cpiTree: CpiNode[], summary, rawLogs }
+
+  Mode 2 — Auto-Trace: { bytecodeBase64, idl? }
+    → Starts solana-test-validator, deploys, simulates
+    → Falls back gracefully if validator unavailable
+
+CpiNode: { programId, depth, computeUnits, success, error?, accounts, children[] }
+
+The parser handles three log line types:
+  - "Program &lt;id&gt; invoke [&lt;depth&gt;]"      → push node onto stack
+  - "Program &lt;id&gt; consumed &lt;n&gt; of &lt;m&gt;"   → assign CU by program ID (searches stack backward)
+  - "Program &lt;id&gt; success"                → pop, mark success=true
+  - "Program &lt;id&gt; failed: &lt;message&gt;"     → pop, mark success=false, extract error text</code></pre>
+
+<!-- ============================================================ -->
+<h2>Data Flow — Build to Deploy</h2>
+
+<pre><code>User writes Rust code in Monaco editor
+        │
+        ▼
+onChange → ProjectManager.updateFile() → localStorage (persisted)
+        │
+User clicks "Build"
+        │
+        ▼
+handleBuild():
+  1. CompilerClient.build({ programName, files: .rs sources })
+  2. POST /api/build → Express → scaffold → cargo build-sbf
+  3. Returns: { program (base64), programId, programKeypair }
+  4. setBuiltBytecode / setBuiltKeypair / setBuildResult
+  5. Terminal: "Build complete. Program ID: ..."
+        │
+User clicks "Deploy"
+        │
+        ▼
+handleDeploy():
+  1. If wallet has secretKey → use it directly
+  2. If browser wallet (no secretKey) → generate temp Keypair,
+     fund via airdrop, use temp keypair's hex
+  3. POST /api/deploy → solana program deploy --chunk-size 65536
+  4. Terminal: "Deploy tx: {signature}"
+        │
+User clicks "Profile CU"  (post-deploy analysis)
+        │
+        ▼
+handleProfile():
+  1. POST /api/profile → local validator → simulate → parse CU logs
+  2. Returns: { totalCuConsumed, cuUtilization, instructions: [...] }
+  3. CuProfiler renders icicle chart with hotspots</code></pre>
+
+<!-- ============================================================ -->
+<h2>Security Model</h2>
+
+<table class="api-table">
+  <tr><th>Concern</th><th>Mitigation</th></tr>
+  <tr><td>Wallet secret keys</td><td>XOR-encrypted in localStorage, key derived from sessionStorage (wiped on tab close)</td></tr>
+  <tr><td>API authentication</td><td>Railway deployment uses RAILWAY_TOKEN (GitHub secret), no public auth on endpoints</td></tr>
+  <tr><td>CORS</td><td>Backend allows all origins (development service)</td></tr>
+  <tr><td>Payload limits</td><td>5MB JSON limit on Express body-parser</td></tr>
+  <tr><td>Build isolation</td><td>Each build in unique /tmp directory, recursive cleanup after</td></tr>
+  <tr><td>Docker isolation</td><td>Containerized build environment — host system is isolated</td></tr>
+  <tr><td>Faucet key</td><td>Stored as Railway secret (FAUCET_SECRET_KEY), never in code</td></tr>
+  <tr><td>Frontend secrets</td><td>API URL is public; no secrets in client bundle</td></tr>
+  <tr><td>File upload</td><td>Paths validated against traversal (../), max file size 200KB, max 40 files</td></tr>
+  <tr><td>Browser wallet deploy</td><td>Temp keypair generated in-browser, funded for exactly 1 SOL, ephemeral</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Build Pipeline — Docker Details</h2>
+<p>The Docker image is built in <strong>three stages</strong>:</p>
+
+<ol>
+  <li><strong>builder-toolchain</strong> (rust:1.75-slim-bookworm):
+    <ul>
+      <li>Installs build-essential, Node.js 20, curl, git</li>
+      <li>Installs Solana CLI 1.18.18 via the official install script</li>
+      <li>Installs Anchor 0.30.1 via avm (Anchor Version Manager)</li>
+      <li>Installs Rust 1.85.1 for metadata resolution</li>
+      <li>Downloads and extracts platform-tools v1.41 (SBF compiler)</li>
+      <li>Creates a dummy Anchor project and runs <code>cargo fetch</code> + <code>cargo generate-lockfile</code> to pre-cache all dependencies</li>
+      <li>Patches crates for edition2024 + MSRV compatibility (sed workarounds for hybrid-array, cmov, anchor-syn)</li>
+      <li>Copies cached crates between hash directories for multi-Rust-version support</li>
+    </ul>
+  </li>
+  <li><strong>api-builder</strong> (node:20-slim):
+    <ul>
+      <li>Installs npm dependencies</li>
+      <li>Runs tsc to compile TypeScript → JavaScript</li>
+    </ul>
+  </li>
+  <li><strong>Production</strong> (from builder-toolchain):
+    <ul>
+      <li>Copies compiled JS + node_modules from api-builder</li>
+      <li>Exposes port 8080</li>
+      <li>CMD: node dist/index.js</li>
+    </ul>
+  </li>
+</ol>
+
+<p>The resulting image is ~2.5GB — it's large because it bundles the full Solana + Anchor toolchain. Cold deploys take 5-15 minutes. Subsequent deploys use cached layers and take ~1-2 minutes.</p>
+
+<!-- ============================================================ -->
+<h2>The Airdrop Challenge — In Depth</h2>
+<p>The devnet <code>requestAirdrop</code> endpoint has a daily limit of ~1 SOL per IP address. Since Railway's egress IP is shared across all users, hitting this limit was the #1 support issue.</p>
+
+<p>The solution is a <strong>3-tier fallback system</strong> with a hard 25-second deadline:</p>
+
+<pre><code>Request ──→ Tier 1: Faucet transfer
+              ├── Has FAUCET_SECRET_KEY + balance?
+              ├── YES → solana transfer → ✅ (instant, no rate limit)
+              └── NO  → fall through to Tier 2
+
+         ──→ Tier 2: RPC airdrop pool (shuffled)
+              For each RPC endpoint (max 25s total):
+                ├── CLI: solana airdrop (20s timeout)
+                └── web3.js: Connection.requestAirdrop (15s timeout)
+              └── All fail → fall through to Tier 3
+
+         ──→ Tier 3: Client-side browser fallback
+              Frontend calls createSolanaRpc().requestAirdrop()
+              Uses user's browser IP (separate rate-limit pool)
+              └── All fail → show error + funding instructions
+
+The faucet wallet address is pinned:
+  3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR
+Fund it at solfaucet.com for instant transfers (no rate limits).</code></pre>
+
+<!-- ============================================================ -->
+<h2>CU Profiling — How It Works</h2>
+<p>The most recent feature added to Solphg. It answers the question every Solana developer eventually asks: <em>"Why is my program consuming so many compute units?"</em></p>
+
+<h4>The Log Parser (Pure Function)</h4>
+<pre><code>function parseCpuProfileLogs(logs: string[]) {
+  const roots = [], stack = []
+  for (const line of logs) {
+    if (line matches "Program X invoke [depth]")   → push node onto stack
+    if (line matches "Program X consumed N of M")  → assign CU via stack search
+    if (line matches "Program X success")          → pop, mark success
+    if (line matches "Program X failed: msg")      → pop, mark error
+  }
+  // Enhance with: ownCu = cuConsumed - sum(children.cuConsumed)
+  //               percentage = cuConsumed / totalCu * 100
+  //               isHotspot = percentage > 20
+  return { tree: enhancedRoots, totalCu }
+}</code></pre>
+
+<h4>The Flamechart UI</h4>
+<p>Rendered as an icicle chart (top-down flamegraph) using pure SVGs — no external charting libraries:</p>
+<ul>
+  <li><strong>Bar width</strong> = CU consumption (proportional to total)</li>
+  <li><strong>Nesting</strong> = CPI depth (invoke → child → grandchild)</li>
+  <li><strong>Color</strong> = green (low), yellow (20-50% hotspot), red (>50%)</li>
+  <li><strong>Cap reference line</strong> = 1.4M CU (configurable via ComputeBudgetProgram)</li>
+  <li><strong>Click to expand/collapse</strong> CPI children</li>
+  <li><strong>Hotspot badge</strong> = orange "!" icon on instructions >20%</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>Wallet System</h2>
+
+<h4>Three Wallet Types</h4>
+<table class="api-table">
+  <tr><th>Type</th><th>Has Secret Key</th><th>Can Build</th><th>Can Deploy</th><th>Can Airdrop</th></tr>
+  <tr><td>Generated</td><td>✅ Hex (64 bytes)</td><td>✅</td><td>✅</td><td>✅</td></tr>
+  <tr><td>Imported</td><td>✅ Hex / JSON / Base58</td><td>✅</td><td>✅</td><td>✅</td></tr>
+  <tr><td>Browser (Phantom/Solflare/Backpack)</td><td>❌ Not exposed</td><td>✅</td><td>✅</td><td>✅</td></tr>
+</table>
+
+<h4>Browser Wallet Detection</h4>
+<p>Uses the wallet-standard API with legacy fallback:</p>
+<ol>
+  <li>Listens for <code>wallet-standard:register-wallet</code> custom event</li>
+  <li>Queries <code>navigator.wallets</code> for standard-compliant wallets</li>
+  <li>Falls back to <code>window.solana</code> for legacy adapters</li>
+  <li>Polls every 2 seconds for late-detected wallets</li>
+</ol>
+
+<!-- ============================================================ -->
+<h2>Deployment Topology</h2>
+
+<table class="api-table">
+  <tr><th>Component</th><th>Host</th><th>Trigger</th></tr>
+  <tr><td>Frontend</td><td>Vercel</td><td>Push to main → auto-deploy</td></tr>
+  <tr><td>Backend</td><td>Railway</td><td>GitHub Actions → npx railway up</td></tr>
+  <tr><td>DNS</td><td>Vercel (frontend) / Railway (backend)</td><td>—</td></tr>
+</table>
+
+<h3>Environment Variables</h3>
+<table class="api-table">
+  <tr><th>Variable</th><th>Type</th><th>Purpose</th></tr>
+  <tr><td>PORT</td><td>Public</td><td>Server port (8080)</td></tr>
+  <tr><td>DEVNET_RPC_URL</td><td>Secret</td><td>Custom devnet RPC endpoint for airdrops</td></tr>
+  <tr><td>FAUCET_SECRET_KEY</td><td>Secret</td><td>Faucet wallet private key (hex 64 bytes)</td></tr>
+  <tr><td>HELIUS_API_KEY</td><td>Secret</td><td>Helius RPC key for airdrop fallback</td></tr>
+  <tr><td>MAX_CONCURRENT_BUILDS</td><td>Public</td><td>Build queue limit (default 2)</td></tr>
+  <tr><td>BUILD_TIMEOUT_MS</td><td>Public</td><td>Per-build timeout (default 300000)</td></tr>
+  <tr><td>VITE_COMPILER_API_URL</td><td>Public</td><td>Frontend → backend API URL</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Project Templates</h2>
+<p>Four built-in templates for one-click project scaffolding:</p>
+
+<table class="api-table">
+  <tr><th>Template</th><th>Framework</th><th>Instructions</th><th>Accounts</th></tr>
+  <tr><td>Anchor Counter</td><td>Anchor 0.30</td><td>initialize</td><td>1</td></tr>
+  <tr><td>Native Hello World</td><td>Native (solana-program)</td><td>process_instruction</td><td>None</td></tr>
+  <tr><td>SPL Token Transfer</td><td>Anchor 0.30</td><td>create_mint, mint_to, send_with_memo</td><td>4-5</td></tr>
+  <tr><td>Coin Flip Game</td><td>Anchor 0.30</td><td>initialize_house, play, settle</td><td>3-4</td></tr>
+</table>
+
+<p>Each template includes: Rust source, Cargo.toml, Anchor.toml, TypeScript client, and test stubs.</p>
+
+<!-- ============================================================ -->
 <h2>What's Next</h2>
+
 <div class="feature-grid">
   <div class="feature-card">
     <h4>Real Job Queue</h4>
-    <p>BullMQ + Redis for persistent build history and horizontal scaling.</p>
+    <p>BullMQ + Redis for persistent build history, retries, and horizontal scaling across multiple workers.</p>
   </div>
   <div class="feature-card">
-    <h4>Build Cache</h4>
-    <p>Per-user S3 buckets for near-instant rebuilds.</p>
+    <h4>Sandboxed Builds</h4>
+    <p>Firecracker microVMs or gVisor for per-build isolation — prevents cross-build contamination.</p>
   </div>
   <div class="feature-card">
-    <h4>Sandboxed Execution</h4>
-    <p>Firecracker microVMs for per-build isolation.</p>
+    <h4>Persistent Build Cache</h4>
+    <p>Per-user S3/GCS buckets keyed by project hash + lockfile hash for &lt;5s warm builds.</p>
   </div>
   <div class="feature-card">
-    <h4>Shareable Links</h4>
-    <p>Encode full project state in a URL for tutorials and sharing.</p>
+    <h4>Auto-Generated TS Client</h4>
+    <p>Generate a typed TypeScript client from the IDL after every build — downloadable as a package.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Shareable Project Links</h4>
+    <p>Encode full project state in a URL (solphg.app/p/{id}) — read-only by default, forkable.</p>
+  </div>
+  <div class="feature-card">
+    <h4>CU Profiler Diff</h4>
+    <p>Side-by-side comparison of two profiler runs (before/after code change).</p>
   </div>
 </div>
 
-<p style="margin-top: 32px;">
-  <span class="tag">React 19</span>
-  <span class="tag">TypeScript 5</span>
-  <span class="tag">Vite 6</span>
-  <span class="tag">Express 4</span>
-  <span class="tag">Solana 1.18</span>
+<!-- ============================================================ -->
+<h2>Tech Tags</h2>
+<p style="margin-bottom: 24px;">
+  <span class="tag">React 18.3</span>
+  <span class="tag">TypeScript 5.5</span>
+  <span class="tag">Vite 5.4</span>
+  <span class="tag">Monaco Editor</span>
+  <span class="tag">Express 4.19</span>
+  <span class="tag">Node.js 20</span>
+  <span class="tag">Solana CLI 1.18</span>
   <span class="tag">Anchor 0.30</span>
   <span class="tag">Rust 1.85</span>
   <span class="tag">Docker</span>
   <span class="tag">Vercel</span>
   <span class="tag">Railway</span>
+  <span class="tag">@solana/web3.js v2</span>
+  <span class="tag">wallet-standard</span>
+  <span class="tag">npm workspaces</span>
+  <span class="tag">GitHub Actions</span>
+</p>
+
+<p style="font-size: 0.9em; color: #8b949e;">
+  <a href="https://github.com/SURUJ404/Solphg">GitHub Repository</a> ·
+  <a href="https://solphg-playground.vercel.app/" class="demo-link">Live Demo</a> ·
+  <a href="https://agile-sparkle-production-83d3.up.railway.app/api/health">API Health</a>
 </p>
 
 <div class="footer">
-  <p><a href="https://github.com/SURUJ404/Solphg">Solphg on GitHub</a> · Built with React, TypeScript, Express, Docker, and a lot of Solana.</p>
+  <p>Built with React, TypeScript, Express, Docker, and a lot of Solana. Open source — contributions welcome.</p>
 </div>
 
 </div>
