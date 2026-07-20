@@ -4,38 +4,38 @@ const features = [
   {
     icon: "⚡",
     bg: "rgba(255,107,138,0.12)",
-    title: "Browser-Based IDE",
-    desc: "Monaco editor with Rust syntax highlighting, file explorer, and terminal — all in your browser.",
+    title: "Works in Your Browser",
+    desc: "No installations, no local setup. Just open the app and start building. Everything runs online.",
   },
   {
     icon: "🛠",
     bg: "rgba(124,58,237,0.12)",
-    title: "Anchor Smart Contracts",
-    desc: "Full Anchor 0.30.1 toolchain. Write Rust, compile to SBF with one click.",
+    title: "Write Rust, Compile Instantly",
+    desc: "Full smart contract toolchain built-in. Write code in Rust and compile to Solana bytecode with one click.",
   },
   {
     icon: "🚀",
     bg: "rgba(59,130,246,0.12)",
-    title: "One-Click Deploy",
-    desc: "Deploy to devnet/testnet/mainnet directly from the browser. No CLI needed.",
+    title: "Deploy to Any Network",
+    desc: "Push your program to devnet, testnet, or mainnet directly from your browser. No command line needed.",
   },
   {
     icon: "📊",
     bg: "rgba(255,107,138,0.12)",
-    title: "CU Profiler",
-    desc: "Simulate transactions and visualize compute unit usage with an icicle flamechart.",
-  },
-  {
-    icon: "🔍",
-    bg: "rgba(124,58,237,0.12)",
-    title: "CPI Debugger",
-    desc: "Parse cross-program invocation logs into a structured call tree for debugging.",
+    title: "Understand Your Program",
+    desc: "Profile compute usage, debug cross-program calls, and optimize performance — all with visual tools.",
   },
   {
     icon: "💳",
+    bg: "rgba(124,58,237,0.12)",
+    title: "Wallet for Everyone",
+    desc: "Generate a new wallet, import an existing one, or connect Phantom. Get free SOL for testing with built-in airdrop.",
+  },
+  {
+    icon: "🎯",
     bg: "rgba(59,130,246,0.12)",
-    title: "Wallet & Airdrop",
-    desc: "Generate, import, or connect browser wallets. Built-in airdrop with multi-tier fallback.",
+    title: "Start Fast with Templates",
+    desc: "Pre-built templates for common projects. From a simple counter to a token transfer — start in seconds.",
   },
 ];
 
@@ -43,8 +43,8 @@ export function FeaturesGrid({ onLaunch }: { onLaunch: () => void }) {
   return (
     <section id="features" className="l-features">
       <div className="l-features-header">
-        <h2>Everything You Need to Build on Solana</h2>
-        <p>From writing Rust to deploying on mainnet — no local setup required.</p>
+        <h2>Everything You Need, Nothing You Don't</h2>
+        <p>An all-in-one platform for building on Solana — welcoming to everyone, from first-timers to experienced builders.</p>
       </div>
       <div className="l-features-grid">
         {features.map((f) => (

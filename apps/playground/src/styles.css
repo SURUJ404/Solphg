@@ -318,6 +318,21 @@ html, body, #root {
   margin: 4px 0;
 }
 
+.wallet-faucet-box {
+  margin-top: 8px;
+  padding: 8px;
+  background: var(--bg-input);
+  border-radius: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.wallet-faucet-box .faucet-addr {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  word-break: break-all;
+  color: var(--text-secondary);
+}
 .btn-ghost {
   background: none;
   border: none;

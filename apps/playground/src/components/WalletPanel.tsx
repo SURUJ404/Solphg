@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 
+const FAUCET_ADDRESS = '3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR'
+
 interface BrowserWalletInfo {
   name: string
   icon: string
@@ -124,6 +126,17 @@ export function WalletPanel({ connected, publicKey, secretKey, balance, onConnec
       <div className="wallet-actions">
         <button className="btn btn-secondary btn-sm" onClick={onAirdrop} disabled={isAirdropping}>
           {isAirdropping ? 'Airdropping...' : 'AirDrop SOL'}
+        </button>
+      </div>
+      <div className="wallet-faucet-box">
+        Airdrop fallback: fund the faucet wallet at<br />
+        <span className="faucet-addr">{FAUCET_ADDRESS}</span>
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={() => navigator.clipboard.writeText(FAUCET_ADDRESS)}
+          style={{ fontSize: 10, marginTop: 4 }}
+        >
+          Copy Faucet Address
         </button>
       </div>
       {!isAdapter && (

@@ -290,7 +290,7 @@ export function App() {
         setTerminalLines(prev => [...prev, done])
         await fetchBalance(wallet.publicKey)
       } else {
-        const err: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop failed: ${result.error}`, type: 'error' }
+        const err: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop failed: ${result.error}\n\nFund the faucet wallet to restore instant airdrops:\n3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR`, type: 'error' }
         setTerminalLines(prev => [...prev, err])
       }
     }

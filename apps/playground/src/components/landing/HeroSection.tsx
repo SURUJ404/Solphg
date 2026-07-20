@@ -1,9 +1,10 @@
 import React from "react";
 
-const codeLines = [
+  const codeLines = [
   { text: 'use anchor_lang::prelude::*;', cls: 'keyword' },
   { text: '', cls: '' },
-  { text: 'declare_id!("11111111111111111111111111111111");', cls: 'macro' },
+  { text: '// Welcome to Solana Playground', cls: 'comment' },
+  { text: '// Start building in your browser', cls: 'comment' },
   { text: '', cls: '' },
   { text: '#[program]', cls: 'comment' },
   { text: 'pub mod counter {', cls: 'keyword' },
@@ -21,12 +22,12 @@ export function HeroSection({ onLaunch, onDocs }: { onLaunch: () => void; onDocs
   return (
     <section className="l-hero">
       <div className="l-hero-glow" />
-      <div className="l-hero-tag">⚡ v0.1.0 — Now in Beta</div>
+      <div className="l-hero-tag">✨ Welcome — Free for Everyone</div>
       <h1>
-        Build on Solana, <span>Right in Your Browser</span>
+        Your Gateway to <span>Solana Development</span>
       </h1>
       <p className="l-hero-sub">
-        Write, compile, and deploy Solana programs instantly. No setup, no installs — just your browser and your ideas.
+        Whether you're a seasoned developer or just getting started, Solana Playground gives you everything you need to build on Solana — right from your browser, with zero setup.
       </p>
       <div className="l-hero-actions">
         <button className="btn-primary" onClick={onLaunch}>
