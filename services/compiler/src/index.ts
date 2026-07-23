@@ -395,28 +395,30 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
     // Attempt to run full trace on a local validator
     let validator: any = null;
     let ready = false;
+    let rpcPort = 8899;
     const ledgerDir = path.join("/tmp", `cpi-ledger-${uuidv4()}`);
-    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
     const killValidator = () => { try { if (validator) { process.kill(-validator.pid); } } catch {} };
 
-    try {
-      const { spawn } = require("child_process");
-      validator = spawn("solana-test-validator", [
-        "--reset", "--quiet", `--ledger`, ledgerDir,
-        `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
-      ], { stdio: "ignore", detached: true });
+    const { spawn } = require("child_process");
+    for (let attempt = 0; attempt < 5 && !ready; attempt++) {
+      rpcPort = 8899 + Math.floor(Math.random() * 1000);
+      try {
+        validator = spawn("solana-test-validator", [
+          "--reset", "--quiet", `--ledger`, ledgerDir,
+          `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
+        ], { stdio: "ignore", detached: true });
 
-      for (let i = 0; i < 5; i++) {
-        await sleep(500);
-        try {
-          execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
-          ready = true;
-          break;
-        } catch {}
-      }
-
-      if (!ready) { killValidator(); }
-    } catch {}
+        for (let i = 0; i < 5; i++) {
+          await sleep(500);
+          try {
+            execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
+            ready = true;
+            break;
+          } catch {}
+        }
+        if (!ready) killValidator();
+      } catch { if (validator) killValidator() }
+    }
 
     if (!ready) {
       killValidator();
@@ -566,26 +568,30 @@ app.post("/api/profile", async (req: Request, res: Response) => {
     // Phase 1: Start local validator
     let validator: any = null;
     let ready = false;
+    let rpcPort = 8899;
     ledgerDir = path.join("/tmp", `profile-ledger-${uuidv4()}`);
-    const rpcPort = 8899 + Math.floor(Math.random() * 1000);
     const killValidator = () => { try { if (validator) { process.kill(-validator.pid); } } catch {} };
 
-    try {
-      const { spawn } = require("child_process");
-      validator = spawn("solana-test-validator", [
-        "--reset", "--quiet", `--ledger`, ledgerDir,
-        `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
-      ], { stdio: "ignore", detached: true });
+    const { spawn } = require("child_process");
+    for (let attempt = 0; attempt < 5 && !ready; attempt++) {
+      rpcPort = 8899 + Math.floor(Math.random() * 1000);
+      try {
+        validator = spawn("solana-test-validator", [
+          "--reset", "--quiet", `--ledger`, ledgerDir,
+          `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
+        ], { stdio: "ignore", detached: true });
 
-      for (let i = 0; i < 6; i++) {
-        await sleep(800);
-        try {
-          execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
-          ready = true;
-          break;
-        } catch {}
-      }
-    } catch {}
+        for (let i = 0; i < 6; i++) {
+          await sleep(800);
+          try {
+            execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
+            ready = true;
+            break;
+          } catch {}
+        }
+        if (!ready) killValidator();
+      } catch { if (validator) killValidator() }
+    }
     if (!ready) {
       killValidator();
       return res.json({
