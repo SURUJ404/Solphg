@@ -2,7 +2,8 @@ import { PublicKey } from '@solana/web3.js'
 import type { IdlSeed } from '@solshift/core'
 
 export function findProgramAddress(seeds: Buffer[], programId: PublicKey): { address: PublicKey; bump: number } {
-  return PublicKey.findProgramAddressSync(seeds, programId)
+  const [address, bump] = PublicKey.findProgramAddressSync(seeds, programId)
+  return { address, bump }
 }
 
 export function derivePda(
