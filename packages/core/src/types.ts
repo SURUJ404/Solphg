@@ -15,6 +15,20 @@ export interface SolpgFile {
   language: 'rust' | 'typescript' | 'json' | 'plain'
 }
 
+export interface BuildRequest {
+  projectId: string
+  files: SolpgFile[]
+  framework: 'anchor' | 'native'
+}
+
+export interface BuildResponse {
+  success: boolean
+  programId?: string
+  bytecode?: Uint8Array
+  idl?: Idl
+  errors?: string[]
+}
+
 export interface Idl {
   version: string
   name: string

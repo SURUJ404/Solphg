@@ -88,10 +88,6 @@ export class ProjectManager {
   }
 
   private save(): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.projects))
-    } catch {
-      // localStorage unavailable (SSR, private browsing, extension blocking)
-    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(this.projects))
   }
 }
