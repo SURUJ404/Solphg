@@ -30,7 +30,7 @@ app.use(cors({
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", activeBuilds: buildSem.count, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
+  res.json({ status: "ok", activeBuilds, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
 });
 
 app.post("/api/build", async (req: Request, res: Response) => {
@@ -39,7 +39,7 @@ app.post("/api/build", async (req: Request, res: Response) => {
   if (activeBuilds >= MAX_CONCURRENT_BUILDS) {
     return res.status(429).json({
       success: false,
-      error: `build queue full (${buildSem.count}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
+      error: `build queue full (${activeBuilds}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
     });
   }
 
