@@ -477,7 +477,7 @@ app.post("/api/debug-cpi", async (req: Request, res: Response) => {
 });
 
 app.post("/api/deploy", async (req: Request, res: Response) => {
-  const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body;
+  const { bytecodeBase64, programKeypair, authoritySecretKey, dryRun } = req.body;
   const cluster = (req.body.cluster as string) || "devnet";
   const rpcUrl = resolveRpc(cluster);
   const tmpDir = path.join("/tmp", `deploy-${uuidv4()}`);
@@ -512,6 +512,20 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
       `solana config set --url ${rpcUrl} --keypair ${authorityPath} 2>&1`,
       { cwd: tmpDir, timeout: 10_000 },
     );
+
+    if (dryRun) {
+      const programId = programKeypair
+        ? execSync(`solana-keygen pubkey ${programKpPath}`, { encoding: "utf8", timeout: 5_000 }).toString().trim()
+        : undefined
+      return res.json({
+        dryRun: true,
+        programId,
+        bytecodeSize: soBytes.length,
+        cluster,
+        rpcUrl,
+        message: "Dry run passed. Set dryRun=false to actually deploy.",
+      })
+    }
 
     const deployCmd = programKeypair
       ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} --chunk-size 65536 2>&1`
