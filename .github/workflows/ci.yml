@@ -30,3 +30,9 @@ jobs:
       - name: Check TypeScript (API)
         working-directory: services/compiler
         run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Smoke test
+        run: node smoke-spa.mjs
