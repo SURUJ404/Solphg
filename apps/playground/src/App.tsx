@@ -173,6 +173,11 @@ export function App() {
       deploySecretKey = tempHex
     }
 
+    if (cluster === 'mainnet-beta') {
+      const confirmed = window.confirm('You are deploying to MAINNET. This costs real SOL. Continue?')
+      if (!confirmed) return
+    }
+
     const msg: TerminalLine = { id: crypto.randomUUID(), content: `Deploying to ${cluster}...`, type: 'system' }
     setTerminalLines(prev => [...prev, msg])
     const result = await compilerClient.deploy(builtBytecode, deploySecretKey, builtKeypair, cluster)
@@ -271,18 +276,23 @@ export function App() {
       setTerminalLines(prev => [...prev, fallbackMsg])
 
       let clientSig: string | null = null
+      const heliusKey = (import.meta as any)?.env?.VITE_HELIUS_API_KEY
       const clientRpcs = [
         'https://api.devnet.solana.com',
-        'https://devnet.helius-rpc.com/?api-key=',
+        ...(heliusKey ? [`https://devnet.helius-rpc.com/?api-key=${heliusKey}`] : []),
       ].sort(() => Math.random() - 0.5)
 
+      let lastErr: unknown
       for (const url of clientRpcs) {
         try {
           const mod = await import('@solana/web3.js') as any
           const rpc = mod.createSolanaRpc(url)
           clientSig = await rpc.requestAirdrop(wallet.publicKey, 2e9).send()
           if (clientSig) break
-        } catch {}
+        } catch (e) {
+          lastErr = e
+          console.warn(`Airdrop fallback failed for ${url}:`, e)
+        }
       }
 
       if (clientSig) {

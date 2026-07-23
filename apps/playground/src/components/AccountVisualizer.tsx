@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useMemo } from 'react'
 
 interface Props {
   programId: string
@@ -13,29 +13,42 @@ interface AccountNode {
   details?: string
 }
 
+function tryDerivePda(programId: string, seed: string): string | null {
+  try {
+    const { PublicKey } = require('@solana/web3.js') as any
+    const [pda] = PublicKey.findProgramAddressSync([Buffer.from(seed)], new PublicKey(programId))
+    return pda.toBase58()
+  } catch {
+    return null
+  }
+}
+
 export function AccountVisualizer({ programId, cluster }: Props) {
   const [expanded, setExpanded] = useState(true)
 
-  // Derive common PDAs from the program ID
   const pdaSeeds = [
     { label: 'Program Data Account', seeds: ['ProgramData'], details: 'Stores upgrade authority + program bytecode' },
     { label: 'Buffer Account', seeds: ['buffer'], details: 'Temporary staging for program writes' },
   ]
 
-  const tree: AccountNode[] = [
+  const tree = useMemo<AccountNode[]>(() => {
+    const children: AccountNode[] = []
+    for (const s of pdaSeeds) {
+      const addr = tryDerivePda(programId, s.seeds[0])
+      children.push({
+        label: s.label,
+        address: addr || `PDA(seeds=${s.seeds[0]})`,
+        type: 'pda',
+        details: s.details,
+      })
+    }
+    return [
     {
       label: 'Program',
       address: programId,
       type: 'program',
       details: 'Executable account — deployed program code lives here',
-      children: [
-        ...pdaSeeds.map(s => ({
-          label: s.label,
-          address: 'PDA(seeds=' + s.seeds[0] + ')',
-          type: 'pda' as const,
-          details: s.details,
-        })),
-      ],
+      children,
     },
     {
       label: 'Authority (Signer)',
@@ -49,7 +62,7 @@ export function AccountVisualizer({ programId, cluster }: Props) {
       type: 'system',
       details: 'Creates program account and allocates space',
     },
-  ]
+  ], [programId])
 
   const explorerUrl = cluster === 'mainnet-beta'
     ? `https://explorer.solana.com/address/${programId}`
