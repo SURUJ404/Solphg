@@ -12,6 +12,13 @@ const PORT = Number(process.env.PORT || 8080);
 const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS || 2);
 
 let activeBuilds = 0;
+const buildSem = { count: 0, max: MAX_CONCURRENT_BUILDS };
+function acquireBuild(): boolean {
+  if (buildSem.count >= buildSem.max) return false;
+  buildSem.count++;
+  return true;
+}
+function releaseBuild(): void { buildSem.count--; }
 
 const CLUSTER_RPCS: Record<string, string> = {
   devnet: "https://api.devnet.solana.com",
@@ -24,7 +31,9 @@ function resolveRpc(cluster?: string): string {
 }
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || 'https://suruj404.github.io',
+}));
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (_req: Request, res: Response) => {
@@ -34,14 +43,13 @@ app.get("/api/health", (_req: Request, res: Response) => {
 app.post("/api/build", async (req: Request, res: Response) => {
   const body = req.body as BuildRequest;
 
-  if (activeBuilds >= MAX_CONCURRENT_BUILDS) {
+  if (!acquireBuild()) {
     return res.status(429).json({
       success: false,
       error: `build queue full (${activeBuilds}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
     });
   }
 
-  activeBuilds++;
   try {
     const result = await runBuild(body);
     const statusCode = result.success ? 200 : 400;
@@ -49,7 +57,7 @@ app.post("/api/build", async (req: Request, res: Response) => {
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || "internal error" });
   } finally {
-    activeBuilds--;
+    releaseBuild();
   }
 });
 
@@ -168,7 +176,9 @@ app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
         const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
         res.json({ success: true, faucetAddress: faucetAddr, faucetBalance: bal, message: "Faucet wallet funded! Airdrop should work now." });
         return;
-      } catch {}
+      } catch (e: any) {
+        console.warn(`faucet-fund RPC ${rpc} failed:`, e.stderr || e.message);
+      }
     }
     res.json({ error: "All RPC endpoints rate-limited. Try again later." });
   } catch (err: any) {
@@ -226,7 +236,13 @@ app.post("/api/simulate", async (req: Request, res: Response) => {
     }
     await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
 
-    const soBytes = Buffer.from(bytecodeBase64, "base64");
+    if (!bytecodeBase64 || typeof bytecodeBase64 !== "string") {
+      return res.json({ error: "bytecodeBase64 is required and must be a string" });
+    }
+    let soBytes: Buffer;
+    try { soBytes = Buffer.from(bytecodeBase64, "base64"); } catch {
+      return res.json({ error: "bytecodeBase64 is not valid base64" });
+    }
     await fs.writeFile(programPath, soBytes);
 
     if (programKeypair) {

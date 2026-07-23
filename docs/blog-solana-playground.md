@@ -35,7 +35,7 @@ apps/playground (Vite + React SPA) ─── HTTP ─── services/compiler (E
                                                         └── GET  /api/balance    → solana balance (any cluster)
 ```
 
-The frontend is a **Vite + React 19 SPA** with TypeScript. The backend is an **Express server** running inside a **Docker image** that bundles the full Solana CLI (1.18), Anchor (0.30), and Rust (1.85) toolchain.
+The frontend is a **Vite + React 18 SPA** with TypeScript. The backend is an **Express server** running inside a **Docker image** that bundles the full Solana CLI (1.18), Anchor (0.30), and Rust (1.85) toolchain.
 
 ---
 

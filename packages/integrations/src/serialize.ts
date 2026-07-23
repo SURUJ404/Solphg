@@ -72,7 +72,7 @@ function serializeIdlValue(type: any, value: any): Buffer {
       case 'bool':
         return Buffer.from([value ? 1 : 0])
       default:
-        return Buffer.from([])
+        throw new Error(`Unsupported IDL type: ${JSON.stringify(type)}`)
     }
   }
 
@@ -95,5 +95,9 @@ function serializeIdlValue(type: any, value: any): Buffer {
     return Buffer.concat(items)
   }
 
-  return Buffer.from([])
+  if (type.defined) {
+    throw new Error(`Unsupported IDL defined type: ${type.defined}`)
+  }
+
+  throw new Error(`Unsupported IDL type: ${JSON.stringify(type)}`)
 }

@@ -6,8 +6,9 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @solshift/core -w @solshift/engine -w @solshift/shell -w @solshift/plugin-manager -w @solshift/integrations && npm run build -w @solshift/playground",
-    "dev": "npm run dev -w @solshift/playground",
+    "prepare": "npm run build -w @solshift/core -w @solshift/engine -w @solshift/shell -w @solshift/plugin-manager -w @solshift/integrations",
+    "build": "npm run prepare && npm run build -w @solshift/playground",
+    "dev": "npm run prepare && npm run dev -w @solshift/playground",
     "clean": "npm run --workspaces --if-present clean"
   },
   "devDependencies": {

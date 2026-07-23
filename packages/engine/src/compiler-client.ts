@@ -1,5 +1,11 @@
 import { COMPILER_API_URL } from '@solshift/core'
 
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  return fetch(url, { ...options, signal: controller.signal }).finally(() => clearTimeout(timeout))
+}
+
 export interface BuildFile {
   path: string
   content: string
@@ -48,11 +54,11 @@ export class CompilerClient {
 
   async build(req: BuildRequest): Promise<BuildResult> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/build`, {
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/build`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(req),
-      })
+      }, 320_000)
       if (!res.ok) {
         const text = await res.text()
         return { success: false, logs: '', error: `API error ${res.status}: ${text}` }
@@ -65,7 +71,7 @@ export class CompilerClient {
 
   async health(): Promise<HealthStatus | { error: string }> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/health`)
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/health`, {}, 15_000)
       return res.json()
     } catch {
       return { error: `Cannot reach build service at ${this.apiUrl}. Make sure Docker is running (docker compose up).` }
@@ -74,11 +80,11 @@ export class CompilerClient {
 
   async deploy(bytecodeBase64: string, authoritySecretKey: string, programKeypair?: string, cluster?: string): Promise<{ signature?: string; programId?: string; error?: string }> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/deploy`, {
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/deploy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bytecodeBase64, authoritySecretKey, programKeypair, cluster }),
-      })
+      }, 130_000)
       return res.json() as Promise<{ signature?: string; programId?: string; error?: string }>
     } catch {
       return { error: `Cannot reach build service at ${this.apiUrl}. Make sure Docker is running.` }
@@ -90,11 +96,11 @@ export class CompilerClient {
     authorityBalance?: number; hasSufficientBalance?: boolean; output?: string; error?: string
   }> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/simulate`, {
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/simulate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bytecodeBase64, authoritySecretKey, programKeypair, cluster }),
-      })
+      }, 30_000)
       return res.json()
     } catch {
       return { error: `Cannot reach build service.` }
@@ -105,11 +111,11 @@ export class CompilerClient {
     success?: boolean; programId?: string; cpiTree?: any[]; rawLogs?: string; summary?: any; error?: string
   }> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/debug-cpi`, {
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/debug-cpi`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bytecodeBase64, idl }),
-      })
+      }, 30_000)
       return res.json()
     } catch {
       return { error: 'Cannot reach build service.' }
@@ -118,11 +124,11 @@ export class CompilerClient {
 
   async airdrop(address: string, amount: number = 2, cluster?: string): Promise<{ signature?: string; error?: string }> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/airdrop`, {
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/airdrop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ address, amount, cluster }),
-      })
+      }, 30_000)
       return res.json() as Promise<{ signature?: string; error?: string }>
     } catch {
       return { error: `Cannot reach build service at ${this.apiUrl}. Start it with: docker compose up` }
@@ -132,7 +138,7 @@ export class CompilerClient {
   async getBalance(address: string, cluster?: string): Promise<{ balance: number } | { error: string }> {
     try {
       const params = cluster ? `?cluster=${cluster}` : ''
-      const res = await fetch(`${this.apiUrl}/api/balance/${address}${params}`)
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/balance/${encodeURIComponent(address)}${params}`, {}, 15_000)
       return res.json() as Promise<{ balance: number } | { error: string }>
     } catch {
       return { error: `Cannot reach build service at ${this.apiUrl}. Start it with: docker compose up` }
@@ -144,11 +150,11 @@ export class CompilerClient {
     programId?: string; instructions?: any[]; error?: string; logs?: string[]
   }> {
     try {
-      const res = await fetch(`${this.apiUrl}/api/profile`, {
+      const res = await fetchWithTimeout(`${this.apiUrl}/api/profile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bytecodeBase64, authoritySecretKey, programKeypair, instructionData, cluster }),
-      })
+      }, 30_000)
       return res.json()
     } catch {
       return { error: 'Cannot reach build service.' }
