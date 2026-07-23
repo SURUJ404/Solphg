@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { execSync } from "child_process";
@@ -29,6 +30,14 @@ const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
   : ['https://suruj404.github.io', 'https://solphg-playground.vercel.app']
 
+const limiter = rateLimit({
+  windowMs: 60_000,
+  max: parseInt(process.env.RATE_LIMIT_MAX || "30"),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many requests. Try again later." },
+})
+
 const app = express();
 app.use(cors({
   origin: (origin, callback) => {
@@ -39,6 +48,7 @@ app.use(cors({
     }
   },
 }));
+app.use(limiter)
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (_req: Request, res: Response) => {
