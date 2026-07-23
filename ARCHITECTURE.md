@@ -165,7 +165,7 @@ solpg/
 
 | Layer | Technology |
 |---|---|
-| UI Framework | React 19 |
+| UI Framework | React 18 |
 | Build Tool | Vite 6 |
 | Language | TypeScript 5 |
 | Editor | Monaco Editor (@monaco-editor/react) |

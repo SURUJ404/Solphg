@@ -336,7 +336,7 @@ no-log-ix-name = []
 
 [dependencies]
 anchor-lang = "0.30.1"
-anchor-spl = "0.30.0"
+anchor-spl = "0.30.1"
 `,
       language: 'plain',
     },

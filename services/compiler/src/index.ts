@@ -176,7 +176,9 @@ app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
         const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
         res.json({ success: true, faucetAddress: faucetAddr, faucetBalance: bal, message: "Faucet wallet funded! Airdrop should work now." });
         return;
-      } catch {}
+      } catch (e: any) {
+        console.warn(`faucet-fund RPC ${rpc} failed:`, e.stderr || e.message);
+      }
     }
     res.json({ error: "All RPC endpoints rate-limited. Try again later." });
   } catch (err: any) {
