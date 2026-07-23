@@ -31,7 +31,7 @@ export function AccountVisualizer({ programId, cluster }: Props) {
     { label: 'Buffer Account', seeds: ['buffer'], details: 'Temporary staging for program writes' },
   ]
 
-  const tree = useMemo<AccountNode[]>(() => {
+  const tree = useMemo(() => {
     const children: AccountNode[] = []
     for (const s of pdaSeeds) {
       const addr = tryDerivePda(programId, s.seeds[0])
@@ -42,7 +42,7 @@ export function AccountVisualizer({ programId, cluster }: Props) {
         details: s.details,
       })
     }
-    return [
+    const result: AccountNode[] = [
     {
       label: 'Program',
       address: programId,
@@ -62,7 +62,9 @@ export function AccountVisualizer({ programId, cluster }: Props) {
       type: 'system',
       details: 'Creates program account and allocates space',
     },
-  ], [programId])
+  ]
+      return result
+    }, [programId])
 
   const explorerUrl = cluster === 'mainnet-beta'
     ? `https://explorer.solana.com/address/${programId}`
