@@ -173,6 +173,11 @@ export function App() {
       deploySecretKey = tempHex
     }
 
+    if (cluster === 'mainnet-beta') {
+      const confirmed = window.confirm('You are deploying to MAINNET. This costs real SOL. Continue?')
+      if (!confirmed) return
+    }
+
     const msg: TerminalLine = { id: crypto.randomUUID(), content: `Deploying to ${cluster}...`, type: 'system' }
     setTerminalLines(prev => [...prev, msg])
     const result = await compilerClient.deploy(builtBytecode, deploySecretKey, builtKeypair, cluster)
