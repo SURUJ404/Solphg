@@ -32,12 +32,12 @@ function resolveRpc(cluster?: string): string {
 
 const app = express();
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'https://suruj404.github.io',
+  origin: process.env.CORS_ORIGIN || ['https://suruj404.github.io', 'https://solphg-playground.vercel.app'],
 }));
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", activeBuilds, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
+  res.json({ status: "ok", activeBuilds: buildSem.count, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
 });
 
 app.post("/api/build", async (req: Request, res: Response) => {
@@ -46,7 +46,7 @@ app.post("/api/build", async (req: Request, res: Response) => {
   if (!acquireBuild()) {
     return res.status(429).json({
       success: false,
-      error: `build queue full (${activeBuilds}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
+      error: `build queue full (${buildSem.count}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
     });
   }
 
