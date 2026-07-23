@@ -134,8 +134,10 @@ export async function runBuild(req: BuildRequest): Promise<BuildResult> {
       const keypairBytes = Buffer.from(kpBuf);
       programKeypair = keypairBytes.toString("base64");
       const secretHex = keypairBytes.toString("hex");
+      const tmpHex = path.join(projectDir, ".secret.hex");
+      await fs.writeFile(tmpHex, secretHex);
       const pkResult = runLocal(
-        `solana-keygen pubkey /dev/stdin <<< '${secretHex}' 2>&1`,
+        `solana-keygen pubkey ${tmpHex} 2>&1`,
         projectDir,
         10_000,
       );

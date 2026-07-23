@@ -12,9 +12,14 @@
     }
   },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@solshift/core": "*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.0"
   }
 }
