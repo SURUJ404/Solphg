@@ -30,6 +30,16 @@ const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
   : ['https://suruj404.github.io', 'https://solphg-playground.vercel.app']
 
+const opSem = { count: 0, max: parseInt(process.env.MAX_CONCURRENT_OPS || "3") }
+function acquireOp(): boolean {
+  if (opSem.count >= opSem.max) return false
+  opSem.count++
+  return true
+}
+function releaseOp(): void { opSem.count-- }
+
+const faucetCooldowns = new Map<string, number>()
+
 const limiter = rateLimit({
   windowMs: 60_000,
   max: parseInt(process.env.RATE_LIMIT_MAX || "30"),
@@ -171,9 +181,15 @@ app.post("/api/airdrop", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/api/faucet-fund", async (_req: Request, res: Response) => {
+app.post("/api/faucet-fund", async (req: Request, res: Response) => {
   // Generates a fresh keypair, airdrops to it from Railway's IP, then
   // auto-transfers to the faucet wallet (3Lymxu...)
+  const ip = req.ip || "unknown";
+  const cooldown = faucetCooldowns.get(ip) || 0;
+  if (Date.now() < cooldown) {
+    return res.json({ error: "Faucet fund already requested recently. Try again in 60 seconds." });
+  }
+  faucetCooldowns.set(ip, Date.now() + 60_000);
   const tmpDir = path.join("/tmp", `faucet-fund-${uuidv4()}`);
   try {
     await fs.mkdir(tmpDir, { recursive: true });
