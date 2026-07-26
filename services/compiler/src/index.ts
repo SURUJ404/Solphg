@@ -11,7 +11,6 @@ import { Connection, PublicKey } from "@solana/web3.js";
 const PORT = Number(process.env.PORT || 8080);
 const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS || 2);
 
-let activeBuilds = 0;
 const buildSem = { count: 0, max: MAX_CONCURRENT_BUILDS };
 function acquireBuild(): boolean {
   if (buildSem.count >= buildSem.max) return false;
@@ -37,7 +36,7 @@ app.use(cors({
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", activeBuilds, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
+  res.json({ status: "ok", activeBuilds: buildSem.count, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
 });
 
 app.post("/api/build", async (req: Request, res: Response) => {
@@ -46,7 +45,7 @@ app.post("/api/build", async (req: Request, res: Response) => {
   if (!acquireBuild()) {
     return res.status(429).json({
       success: false,
-      error: `build queue full (${activeBuilds}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
+      error: `build queue full (${buildSem.count}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
     });
   }
 

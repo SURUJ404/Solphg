@@ -63,6 +63,7 @@ export function AccountVisualizer({ programId, cluster }: Props) {
       details: 'Creates program account and allocates space',
     },
   ]
+}, [programId])
 
   const explorerUrl = cluster === 'mainnet-beta'
     ? `https://explorer.solana.com/address/${programId}`
