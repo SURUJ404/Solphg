@@ -4,6 +4,7 @@ import { TerminalPanel } from './components/TerminalPanel.js'
 import { FileExplorer } from './components/FileExplorer.js'
 import { WalletPanel } from './components/WalletPanel.js'
 import { DocsPanel } from './components/DocsPanel.js'
+import { SearchPanel } from './components/SearchPanel.js'
 import { BuildResult } from './components/BuildResult.js'
 import { Toolbar } from './components/Toolbar.js'
 import { TemplatePicker } from './components/TemplatePicker.js'
@@ -463,7 +464,7 @@ export function App() {
   }, [])
 
   const handleEditorChange = useCallback((value: string | undefined) => {
-    if (!project || !activeFile || !value) return
+    if (!project || !activeFile || value === undefined) return
     projectManager.updateFile(project.id, activeFile.path, value)
     setProject(prev => prev ? {
       ...prev,
@@ -591,9 +592,7 @@ export function App() {
                   </div>
                 </>
               ) : activeSidebar === 'search' ? (
-                <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
-                  Search coming soon
-                </div>
+                <SearchPanel files={project?.files || []} onFileSelect={handleFileSelect} />
               ) : activeSidebar === 'docs' ? (
                 <DocsPanel />
               ) : (
