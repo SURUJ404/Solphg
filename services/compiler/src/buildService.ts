@@ -20,6 +20,12 @@ function isSafeRelativePath(p: string): boolean {
   return true;
 }
 
+export function normalizeFilePath(filePath: string, _programName: string): string {
+  // Project-root relative form: programs/<crate>/src/lib.rs (template may use
+  // a different crate name than programName, e.g. spl_transfer vs spl-transfer).
+  return filePath.replace(/^programs\/[^/]+\/src\//, "").replace(/^src\//, "");
+}
+
 export function validateRequest(req: BuildRequest): string | null {
   if (!req.programName || !VALID_PROGRAM_NAME.test(req.programName)) {
     return "programName must be lowercase snake_case, 2-64 chars (e.g. 'my_counter')";
@@ -77,7 +83,10 @@ export async function runBuild(req: BuildRequest): Promise<BuildResult> {
     await fs.mkdir(CARGO_TARGET_DIR, { recursive: true });
 
     for (const file of req.files) {
-      const dest = path.join(srcDir, file.path);
+      // Files may be project-root relative (programs/<name>/src/lib.rs) or
+      // src-relative (lib.rs). Normalize both to the program's src dir.
+      const rel = normalizeFilePath(file.path, req.programName);
+      const dest = path.join(srcDir, rel);
       await fs.mkdir(path.dirname(dest), { recursive: true });
       await fs.writeFile(dest, file.content, "utf8");
     }
