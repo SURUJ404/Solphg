@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { validateRequest } from './buildService'
+import { validateRequest, normalizeFilePath } from './buildService'
 import type { BuildRequest } from './types'
 
 function validReq(overrides?: Partial<BuildRequest>): BuildRequest {
@@ -58,5 +58,27 @@ describe('validateRequest', () => {
   it('rejects oversized file', () => {
     const files = [{ path: 'big.rs', content: 'x'.repeat(200_001) }]
     expect(validateRequest(validReq({ files }))).toMatch(/file too large/)
+  })
+})
+
+describe('normalizeFilePath', () => {
+  it('keeps src-relative paths as-is', () => {
+    expect(normalizeFilePath('lib.rs', 'myproject')).toBe('lib.rs')
+    expect(normalizeFilePath('instructions/mod.rs', 'myproject')).toBe('instructions/mod.rs')
+  })
+
+  it('strips a leading src/ prefix', () => {
+    expect(normalizeFilePath('src/lib.rs', 'myproject')).toBe('lib.rs')
+    expect(normalizeFilePath('src/instructions/mod.rs', 'myproject')).toBe('instructions/mod.rs')
+  })
+
+  it('strips a project-root programs/<name>/src prefix', () => {
+    expect(normalizeFilePath('programs/myproject/src/lib.rs', 'myproject')).toBe('lib.rs')
+    expect(normalizeFilePath('programs/spl_transfer/src/lib.rs', 'spl-transfer')).toBe('lib.rs')
+    expect(normalizeFilePath('programs/coinflip/src/lib.rs', 'coinflip')).toBe('lib.rs')
+  })
+
+  it('strips any programs/<crate>/src prefix regardless of programName', () => {
+    expect(normalizeFilePath('programs/other/src/lib.rs', 'myproject')).toBe('lib.rs')
   })
 })
