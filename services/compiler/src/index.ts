@@ -533,8 +533,8 @@ app.post("/api/deploy", async (req: Request, res: Response) => {
     }
 
     const deployCmd = programKeypair
-      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} --chunk-size 65536 2>&1`
-      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} --chunk-size 65536 2>&1`;
+      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`
+      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`;
 
     const output = execSync(deployCmd, { cwd: tmpDir, timeout: 120_000, encoding: "utf8" }).toString().trim();
 
