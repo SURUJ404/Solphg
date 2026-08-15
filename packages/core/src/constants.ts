@@ -4,7 +4,7 @@ export const SOLPG_WS_ENDPOINT = 'wss://api.devnet.solana.com/'
 
 export const SOLPG_FAUCET_URL = 'https://faucet.solana.com'
 
-export const COMPILER_API_URL = 'https://agile-sparkle-production-83d3.up.railway.app'
+export const COMPILER_API_URL = 'https://solphg-api-production.up.railway.app'
 
 export interface ClusterConfig {
   name: string
