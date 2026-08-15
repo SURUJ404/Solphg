@@ -117,6 +117,14 @@ RUN SRC_HASH_85="1949cf8c6b5b557f"; DST_HASH_75="6f17d22bba15001f"; \
     cp -r /usr/local/cargo/registry/src/index.crates.io-$SRC_HASH_85/. /usr/local/cargo/registry/src/index.crates.io-$DST_HASH_75/ && \
     cp -r /usr/local/cargo/registry/index/index.crates.io-$SRC_HASH_85/. /usr/local/cargo/registry/index/index.crates.io-$DST_HASH_75/
 
+# Platform-tools' cargo is older than the crates that emit new-style
+# `cargo::key=value` build directives (e.g. blake3's `cargo::rustc-check-cfg`).
+# Old cargo treats `cargo::` as reserved and hard-errors; downgrade to the
+# single-colon `cargo:` form that it parses (unknown keys are only warned).
+# Applied after the hash-dir copy so both registry copies are patched.
+RUN find /usr/local/cargo/registry/src/index.crates.io-*/ -name "build.rs" -print0 2>/dev/null | xargs -0 sed -i 's/cargo::/cargo:/g' 2>/dev/null; true
+RUN find /usr/local/cargo/git/checkouts -name "build.rs" -print0 2>/dev/null | xargs -0 sed -i 's/cargo::/cargo:/g' 2>/dev/null; true
+
 RUN rm -rf /tmp/fetch-deps
 
 ENV CARGO_TARGET_SBF_SOLANA_SOLANA_RUSTFLAGS="-Zcrate-attr=feature(error_in_core,const_mut_refs,ptr_from_ref,diagnostic_namespace,const_slice_from_raw_parts_mut,const_option,const_array_from_ref,raw_ref_op,inline_const,slice_split_at_unchecked,const_refs_to_cell)"
