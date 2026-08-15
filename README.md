@@ -78,7 +78,7 @@ npm run dev
 ## Deployment
 
 - **Frontend**: Pushed to `main` → auto-deploys to Vercel
-- **API**: `cd services/compiler && npx railway up --service agile-sparkle`
+- **API**: `cd services && npx railway up --service solphg-api`
 
 ## Tech Stack
 
