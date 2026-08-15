@@ -8,7 +8,7 @@ export function Footer() {
         <div className="l-footer-links">
           <a href="https://github.com/SURUJ404/Solphg">GitHub</a>
           <a href="https://suruj404.github.io/Solphg/">Docs</a>
-          <a href="https://agile-sparkle-production-83d3.up.railway.app/api/health">API Status</a>
+          <a href="https://solphg-api-production.up.railway.app/api/health">API Status</a>
         </div>
       </div>
       <div className="l-footer-bottom">
