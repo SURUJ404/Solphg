@@ -480,10 +480,10 @@ Project scaffolding and file management.
 |---|---|
 | Deploy Method | GitHub Actions (`.github/workflows/secrets.yml`) |
 | Trigger | Push to `main` |
-| Service Name | `compiler-api` |
-| Project | `agile-sparkle` |
-| Railway CLI | v3.5.9 (via npx) |
-| Auth | `RAILWAY_TOKEN` secret |
+| Service Name | `solphg-api` |
+| Project | `soothing-emotion` (`43be8ae1-2376-42ad-9ece-f97e625a2bed`) |
+| Railway CLI | v5 (via npx) |
+| Auth | `RAILWAY_API_TOKEN` secret |
 
 **Environment Variables:**
 
@@ -501,7 +501,7 @@ on: push → main
 steps:
   - Checkout code
   - Create .railway/railway.ts with project ID
-  - npx railway up --detach --yes
+  - npx railway up --detach --yes --service solphg-api
 ```
 
 ---
