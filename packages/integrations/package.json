@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./idl-client": {
+      "types": "./dist/idl-client.d.ts",
+      "import": "./dist/idl-client.js"
     }
   },
   "scripts": {

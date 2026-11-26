@@ -157,7 +157,7 @@ Scale vertically until that implementation exists.
 
 Verified locally:
 
-- `npm run build`, `npx vitest run` (121 tests), and
+- `npm run build`, `npx vitest run` (128 tests), and
   `cd services/compiler && npx tsc --noEmit` pass.
 - `npm audit --audit-level=high` passes in both the root and
   `services/compiler` lockfiles.
@@ -165,8 +165,9 @@ Verified locally:
   `read_only`, `cap_drop`, `security_opt`, `pids_limit`, `mem_limit`, `cpus`,
   and tmpfs settings.
 - `npm run test:smoke:playground` passes locally with Chromium installed: the
-  built SPA mounts, launches, builds successfully with an IDL viewer, and the
-  second build shows a cache hit. The API is stubbed in the browser, so this
+  built SPA mounts, launches, builds successfully with an IDL viewer, the
+  second build shows a cache hit, and the returned IDL generates a typed
+  Anchor 0.31 client preview. The API is stubbed in the browser, so this
   verifies UI wiring, not the compiler.
 
 **Not verified — do not assume these work:**

@@ -144,7 +144,17 @@ try {
           program: Buffer.from('stub-elf-binary').toString('base64'),
           programId: PROGRAM_ID,
           programKeypair: Buffer.alloc(64).toString('base64'),
-          idl: { version: '0.1.0', name: body.programName, address: PROGRAM_ID, instructions: [] },
+          idl: {
+            version: '0.1.0',
+            name: body.programName,
+            address: PROGRAM_ID,
+            instructions: [{
+              name: 'initialize',
+              args: [{ name: 'amount', type: 'u64' }],
+              accounts: [{ name: 'counter', writable: true, signer: false }],
+            }],
+            types: [],
+          },
           cached: buildCalls > 1,
           cacheKey: 'stub-cache-key',
           durationMs: 12,
@@ -195,6 +205,22 @@ try {
     .waitFor({ state: 'visible', timeout: 15_000 })
   assert(buildCalls === 2, `expected 2 build calls after the second build, got ${buildCalls}`)
 
+  // 5. Typed client generation from the returned IDL.
+  await page.getByRole('button', { name: 'Generate Client' }).click()
+  const clientPreview = page.locator('[data-testid="generated-client"]')
+  await clientPreview.waitFor({ state: 'visible', timeout: 15_000 })
+  const clientCode = await clientPreview.innerText()
+  assert(clientCode.includes('import * as anchor from "@coral-xyz/anchor"'),
+    `client preview is missing the Anchor 0.31 import: ${clientCode.slice(0, 200)}`)
+  assert(clientCode.includes('new anchor.Program(idl, provider)'),
+    'client preview is missing the Program construction')
+  assert(clientCode.includes('amount: bigint'), 'client preview is missing the typed u64 arg')
+  assert(clientCode.includes('counter: PublicKey'), 'client preview is missing the typed account map')
+  assert(clientCode.includes('async initialize('), 'client preview is missing the instruction method')
+  assert(await page.getByRole('button', { name: 'Copy Client' }).isVisible(), 'Copy Client button missing')
+  await page.getByRole('button', { name: 'Hide Client' }).click()
+  await clientPreview.waitFor({ state: 'hidden', timeout: 15_000 })
+
   assert(pageErrors.length === 0, `uncaught page errors: ${pageErrors.join(' | ')}`)
 
   await import('node:fs/promises').then(({ mkdir, writeFile }) => mkdir(OUT, { recursive: true })
@@ -204,11 +230,12 @@ try {
       healthCalls,
       firstBuildCached: false,
       secondBuildCached: true,
+      generatedClientChecked: true,
       consoleErrors: consoleErrors.slice(0, 10),
       verdict: 'PASS',
     }, null, 2))))
 
-  console.log('\n[playground-smoke] PASS: landing -> launch -> build success + IDL -> rebuild cache hit.\n')
+  console.log('\n[playground-smoke] PASS: landing -> launch -> build success + IDL -> rebuild cache hit -> typed client generated.\n')
   console.log(`  build calls: ${buildCalls}, health calls: ${healthCalls}`)
   if (consoleErrors.length) console.log(`  console errors (not fatal): ${consoleErrors.slice(0, 3).join(' | ')}`)
 } catch (err) {

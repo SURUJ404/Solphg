@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
+import { generateClient } from '@solshift/integrations/idl-client'
 import { AccountVisualizer } from './AccountVisualizer.js'
 import { CpiDebugView, CpiLogParser } from './CpiDebugView.js'
 import { CuProfiler } from './CuProfiler.js'
@@ -60,6 +61,15 @@ interface Props {
 export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecretKey, simulation, isSimulating, cluster, cpiTree, cpiProgramId, cpiRawLogs, cpiSummary, onDebugCpi, isDebuggingCpi, onProfile, isProfiling, profileData, idl, onCopyIdl }: Props) {
   const [showVisualizer, setShowVisualizer] = useState(false)
   const [showIdl, setShowIdl] = useState(false)
+  const [showClient, setShowClient] = useState(false)
+  const generatedClient = useMemo(() => {
+    if (idl === undefined || idl === null) return null
+    try {
+      return generateClient(idl)
+    } catch {
+      return null
+    }
+  }, [idl])
   if (!result) return null
 
   return (
@@ -138,6 +148,11 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
                   {showIdl ? 'Hide IDL' : 'View IDL'}
                 </button>
               )}
+              {generatedClient && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowClient(!showClient)} style={{ fontSize: 11 }}>
+                  {showClient ? 'Hide Client' : 'Generate Client'}
+                </button>
+              )}
               {onDebugCpi && (
                 <button className="btn btn-ghost btn-sm" onClick={onDebugCpi} disabled={isDebuggingCpi} style={{ fontSize: 11 }}>
                   {isDebuggingCpi ? 'Tracing CPIs...' : 'Trace CPI'}
@@ -162,6 +177,24 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
                 {onCopyIdl && (
                   <button className="btn btn-ghost btn-sm" onClick={onCopyIdl} style={{ fontSize: 11 }}>Copy IDL</button>
                 )}
+              </div>
+            )}
+
+            {showClient && generatedClient && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Typed client (Anchor 0.31) — supply account addresses at call time.
+                </div>
+                <pre data-testid="generated-client" style={{ maxHeight: 240, overflow: 'auto', fontSize: 11, background: 'var(--bg-surface)', padding: 8, borderRadius: 6 }}>
+                  {generatedClient}
+                </pre>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ fontSize: 11 }}
+                  onClick={() => navigator.clipboard.writeText(generatedClient).catch(() => {})}
+                >
+                  Copy Client
+                </button>
               </div>
             )}
 
