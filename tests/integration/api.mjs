@@ -115,7 +115,7 @@ async function postBuild(request) {
 // tail so a failed build explains itself in the CI output.
 function responseDetails({ status, body }) {
   const { program: _program, logs: rawLogs, ...meta } = body || {}
-  const logs = typeof rawLogs === 'string' ? rawLogs.slice(-1500) : ''
+  const logs = typeof rawLogs === 'string' ? rawLogs.slice(-8000) : ''
   return `HTTP ${status}: ${JSON.stringify(meta).slice(0, 500)}` +
     (logs ? `\n--- build logs (tail) ---\n${logs}` : '')
 }

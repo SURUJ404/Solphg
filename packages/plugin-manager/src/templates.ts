@@ -185,6 +185,7 @@ export const SPL_TRANSFER_TEMPLATE: ProjectTemplate = {
       name: 'lib.rs',
       path: 'programs/spl_transfer/src/lib.rs',
       content: `use anchor_lang::prelude::*;
+use anchor_lang::system_program::{create_account, CreateAccount};
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 declare_id!("11111111111111111111111111111111");
@@ -194,8 +195,8 @@ pub mod spl_transfer {
     use super::*;
 
     pub fn create_mint(ctx: Context<CreateMint>, decimals: u8) -> Result<()> {
-        let rent = Rent::get()?.minimum_required_balance(Mint::LEN);
-        let cpi_accounts = anchor_spl::system_program::CreateAccount {
+        let rent = Rent::get()?.minimum_balance(Mint::LEN);
+        let cpi_accounts = CreateAccount {
             from: ctx.accounts.payer.to_account_info(),
             to: ctx.accounts.mint.to_account_info(),
         };
@@ -203,7 +204,7 @@ pub mod spl_transfer {
             ctx.accounts.system_program.to_account_info(),
             cpi_accounts,
         );
-        anchor_spl::system_program::create_account(
+        create_account(
             cpi_ctx,
             rent,
             Mint::LEN as u64,
@@ -264,7 +265,7 @@ pub mod spl_transfer {
                 ctx.accounts.authority.key(),
                 true,
             )],
-            data: memo.into_bytes(),
+            data: memo.as_bytes().to_vec(),
         };
         anchor_lang::solana_program::program::invoke(
             &memo_ix,
