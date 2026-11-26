@@ -49,7 +49,7 @@ no-idl = []
 no-log-ix-name = []
 
 [dependencies]
-anchor-lang = "0.30.1"
+anchor-lang = "0.31.1"
 `,
       language: 'plain',
     },
@@ -57,7 +57,7 @@ anchor-lang = "0.30.1"
       name: 'Anchor.toml',
       path: 'Anchor.toml',
       content: `[toolchain]
-anchor_version = "0.30.1"
+anchor_version = "0.31.1"
 
 [programs.devnet]
 myproject = "11111111111111111111111111111111"
@@ -335,8 +335,8 @@ no-idl = []
 no-log-ix-name = []
 
 [dependencies]
-anchor-lang = "0.30.1"
-anchor-spl = "0.30.0"
+anchor-lang = "0.31.1"
+anchor-spl = "0.31.1"
 `,
       language: 'plain',
     },
@@ -344,7 +344,7 @@ anchor-spl = "0.30.0"
       name: 'Anchor.toml',
       path: 'Anchor.toml',
       content: `[toolchain]
-anchor_version = "0.30.1"
+anchor_version = "0.31.1"
 
 [features]
 resolution = true
@@ -596,7 +596,7 @@ no-idl = []
 no-log-ix-name = []
 
 [dependencies]
-anchor-lang = "0.30.1"
+anchor-lang = "0.31.1"
 `,
       language: 'plain',
     },
@@ -604,7 +604,7 @@ anchor-lang = "0.30.1"
       name: 'Anchor.toml',
       path: 'Anchor.toml',
       content: `[toolchain]
-anchor_version = "0.30.1"
+anchor_version = "0.31.1"
 
 [features]
 resolution = true

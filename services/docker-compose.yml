@@ -1,38 +1,53 @@
 services:
-  # Heavy chain-toolchain image — contains Solana SDK, Anchor CLI, platform-tools,
-  # and a fully populated offline cargo registry with patched crates.
-  # Built as a standalone image so the API can spawn sandboxed instances via docker.
+  # Heavy chain-toolchain image (Rust 1.86 / Agave 2.2.7 / Anchor 0.31.1).
+  # Exits immediately; it exists so `docker compose build` produces the image
+  # the API image is based on.
   builder-image:
     build:
       context: .
       dockerfile: builder.Dockerfile
     image: solphg-builder:latest
-    # This service exists solely to build/publish the image; it exits immediately.
     entrypoint: ["echo"]
     command: ["Builder image ready"]
     restart: "no"
 
-  # Thin API service — receives build requests, writes source to a shared volume,
-  # then spawns a sandboxed builder container to compile the program.
-  # Runs under sysbox-runc for hardware-level isolation (no host kernel sharing).
+  # Thin API service. Runs as UID 10001 with a read-only root filesystem,
+  # all capabilities dropped and a tmpfs work dir. The named volume holds the
+  # content-addressed build cache.
   build-api:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BUILDER_IMAGE: solphg-builder:latest
     image: solphg-api:latest
     ports:
       - "8080:8080"
     environment:
       - PORT=8080
+      - NODE_ENV=production
       - MAX_CONCURRENT_BUILDS=2
-      - BUILD_TIMEOUT_MS=300000
-      # Builder image tag to spawn for each build job
-      - BUILDER_IMAGE=solphg-builder:latest
+      - BUILD_TIMEOUT_MS=180000
+      - BUILD_CACHE_DIR=/var/lib/solphg/cache
+      - BUILD_WORK_DIR=/tmp/solphg-work
+      - CORS_ORIGIN=http://localhost:3000
+      - TRUST_PROXY_HOPS=1
     volumes:
-      # Shared workspace — API writes source files, builder reads/writes artifacts
-      - /tmp/solshift-builds:/tmp/solshift-builds
-      # Docker socket for spawning builder containers (secure under sysbox-runc)
-      - /var/run/docker.sock:/var/run/docker.sock
+      - solphg-cache:/var/lib/solphg
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=2g
+      - /workspaces:rw,nosuid,size=128m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2.0
     restart: unless-stopped
     depends_on:
       - builder-image
+
+volumes:
+  solphg-cache:

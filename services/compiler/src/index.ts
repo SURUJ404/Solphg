@@ -74,21 +74,16 @@ app.get("/api/health", (_req: Request, res: Response) => {
 app.post("/api/build", async (req: Request, res: Response) => {
   const body = req.body as BuildRequest;
 
-  if (!acquireBuild()) {
-    return res.status(429).json({
-      success: false,
-      error: `build queue full (${buildSem.count}/${MAX_CONCURRENT_BUILDS} active). Try again shortly.`,
-    });
-  }
-
   try {
     const result = await runBuild(body);
-    const statusCode = result.success ? 200 : 400;
+    if (!result.success && result.code === "BUILD_QUEUE_FULL") {
+      res.setHeader("Retry-After", String(result.retryAfterSec ?? 10));
+      return res.status(429).json(result);
+    }
+    const statusCode = result.success ? 200 : result.code === "INVALID_REQUEST" ? 400 : 422;
     res.status(statusCode).json(result);
   } catch (err: any) {
     res.status(500).json({ success: false, error: err?.message || "internal error" });
-  } finally {
-    releaseBuild();
   }
 });
 
