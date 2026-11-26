@@ -131,3 +131,81 @@ jobs:
 
       - name: Audit Rust dependencies
         run: cargo audit --file ./canonical-anchor.lock
+
+  api-integration:
+    name: API integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build workspace packages
+        run: npm run build
+
+      # GitHub-hosted ubuntu runners have a running Docker daemon. The script
+      # builds both images via services/docker-compose.yml, builds the counter
+      # and SPL templates through /api/build, checks the ELF/IDL artifacts and
+      # asserts a repeat build is a cache hit. It tears the stack down in
+      # `finally`, including on failure.
+      - name: Build counter and SPL templates in the API container
+        run: npm run test:integration:api
+
+  playground-smoke:
+    name: Playground smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Build playground SPA
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Serves dist/ locally and stubs /api/* in the browser, so this tests the
+      # SPA wiring (launch -> build -> success/IDL -> cached rebuild) without a
+      # live API, RPC, wallet or network dependency.
+      - name: Smoke test the playground UI flow
+        run: npm run test:smoke:playground
+
+  quality-gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    if: always()
+    permissions:
+      contents: read
+    needs: [verify, builder-image, api-integration, playground-smoke]
+    steps:
+      - name: Require all quality jobs to pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '${{ toJSON(needs) }}' > needs.json
+          failed=0
+          for job in verify builder-image api-integration playground-smoke; do
+            result="$(jq -r --arg j "$job" '.[$j].result // "missing"' needs.json)"
+            echo "$job: $result"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then failed=1; fi
+          done
+          exit "$failed"

@@ -482,12 +482,14 @@ Project scaffolding and file management.
 
 | Setting | Value |
 |---|---|
-| Deploy Method | GitHub Actions (`.github/workflows/secrets.yml`) |
-| Trigger | Push to `main` |
+| Deploy Method | Manual (`railway up` / Railway dashboard); no deploy workflow exists today |
+| CI Trigger | Push/PR to `main` → build, test, publish builder image to GHCR |
 | Service Name | `solphg-api` |
 | Project | Configured in Railway (no project ID in this repo) |
-| Railway CLI | v5 (via npx) |
-| Auth | `RAILWAY_API_TOKEN` secret |
+| Dockerfile | `services/railway.Dockerfile` (non-root, from GHCR builder image) |
+| Auth | `RAILWAY_API_TOKEN` secret for manual CLI use |
+
+See `docs/RUNBOOK.md` for the full deploy, monitoring and rollback procedure.
 
 **Environment Variables:**
 
@@ -512,14 +514,9 @@ Project scaffolding and file management.
 
 See `services/compiler/.env.example` for the full validated list.
 
-**Deploy Workflow (`.github/workflows/secrets.yml`):**
-```yaml
-on: push → main
-steps:
-  - Checkout code
-  - Create .railway/railway.ts with project ID
-  - npx railway up --detach --yes --service solphg-api
-```
+**Frontend — Vercel:** build `apps/playground` with `VITE_COMPILER_API_URL` set
+to the API's HTTPS origin, then deploy `dist/`. There is no Vercel workflow in
+this repo. Run `npm run test:smoke:playground` after each deploy.
 
 ---
 

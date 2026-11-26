@@ -86,9 +86,11 @@ necessarily sees them in memory for the duration of one request.
 
 ### Dependency and CI controls
 
-- Root and compiler lockfiles pass `npm audit --audit-level=high`. Residual
-  moderate advisories come from `@solana/web3.js` v1 → `jayson`/`stream-json`;
-  clearing them requires a breaking v3 migration that is out of scope here.
+- Root and compiler lockfiles pass `npm audit --audit-level=high`. The
+  `qs`/Express advisory was cleared with the non-breaking Express 4.22.3 bump.
+  Residual moderate advisories come from `@solana/web3.js` v1 →
+  `jayson`/`stream-json`/`uuid`; clearing them requires a breaking v3 migration
+  that is out of scope here.
 - GitHub Actions are pinned to commit SHAs.
 - Workflow permissions are least-privilege per job.
 
@@ -155,26 +157,32 @@ Scale vertically until that implementation exists.
 
 Verified locally:
 
-- `npm run build`, `npx vitest run` (106 tests), and
+- `npm run build`, `npx vitest run` (121 tests), and
   `cd services/compiler && npx tsc --noEmit` pass.
 - `npm audit --audit-level=high` passes in both the root and
   `services/compiler` lockfiles.
 - `docker compose -f services/docker-compose.yml config` renders the expected
   `read_only`, `cap_drop`, `security_opt`, `pids_limit`, `mem_limit`, `cpus`,
   and tmpfs settings.
+- `npm run test:smoke:playground` passes locally with Chromium installed: the
+  built SPA mounts, launches, builds successfully with an IDL viewer, and the
+  second build shows a cache hit. The API is stubbed in the browser, so this
+  verifies UI wiring, not the compiler.
 
 **Not verified — do not assume these work:**
 
 - The builder image or API image was **not built or run**. The Docker CLI is
   installed (29.9.2) but the daemon was unavailable locally, so neither
-  `docker build` nor a container smoke test ran. In particular the Rust 1.86,
-  Agave 2.2.7, Anchor 0.31.1 installation and the warmed registry/platform
-  tools have not been exercised end-to-end.
+  `docker build` nor `npm run test:integration:api` ran. In particular the
+  Rust 1.86, Agave 2.2.7, Anchor 0.31.1 installation and the warmed
+  registry/platform tools have not been exercised end-to-end. The integration
+  script fails with a clear error in that environment rather than skipping.
 - Devnet airdrop, deploy, and mainnet confirmation flows were not exercised
   against live clusters.
 - Railway enforcement of the resource limits, `TRUST_PROXY_HOPS` behavior
   behind Railway's proxy, and the persistent cache volume were not verified.
-- The `cargo audit` step in CI has not been observed passing.
+- The `cargo audit` step in CI and the new `api-integration` /
+  `playground-smoke` jobs have not been observed on GitHub Actions.
 
 Before go-live, build and run the images locally, execute at least one real
 build against the container, and confirm the Railway settings in the dashboard.
