@@ -13,6 +13,10 @@
     "./idl-client": {
       "types": "./dist/idl-client.d.ts",
       "import": "./dist/idl-client.js"
+    },
+    "./stable-swap": {
+      "types": "./dist/stable-swap.d.ts",
+      "import": "./dist/stable-swap.js"
     }
   },
   "scripts": {

@@ -9,7 +9,7 @@ import { BuildResult } from './components/BuildResult.js'
 import { Toolbar } from './components/Toolbar.js'
 import { TemplatePicker } from './components/TemplatePicker.js'
 import { AccountVisualizer } from './components/AccountVisualizer.js'
-import { ProjectManager, ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE } from '@solshift/plugin-manager'
+import { ProjectManager, ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE, STABLESWAP_TEMPLATE } from '@solshift/plugin-manager'
 import { CompilerClient } from '@solshift/engine'
 import { TerminalEmulator } from '@solshift/shell'
 import { COMPILER_API_URL, CLUSTERS, getCluster } from '@solshift/core'
@@ -659,7 +659,7 @@ export function App() {
         <TemplatePicker
           onSelect={(factory) => {
             const templates: Record<string, any> = {
-              ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE,
+              ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE, STABLESWAP_TEMPLATE,
             }
             const t = templates[factory]
             if (t) handleSelectTemplate(t)

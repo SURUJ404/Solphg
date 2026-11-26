@@ -179,6 +179,11 @@ try {
   await page.waitForFunction(() => document.querySelector('.toolbar-status') !== null)
   assert(healthCalls >= 1, 'health endpoint was never called')
 
+  // The StableSwap AMM template is selectable from the template picker.
+  await page.getByRole('button', { name: '+ New from Template' }).click()
+  await page.getByText('StableSwap AMM Pool', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
   const buildButton = page.locator('.toolbar-actions button.btn-primary')
   await buildButton.waitFor({ state: 'visible', timeout: 15_000 })
 
