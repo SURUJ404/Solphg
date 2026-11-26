@@ -201,8 +201,45 @@ function baseEnv(
   if (process.env.ANCHOR_BIN && /\.(mjs|cjs|js)$/i.test(process.env.ANCHOR_BIN)) {
     if (process.env.FAKE_ANCHOR_MODE) env.FAKE_ANCHOR_MODE = process.env.FAKE_ANCHOR_MODE;
     if (process.env.FAKE_ANCHOR_COUNTER) env.FAKE_ANCHOR_COUNTER = process.env.FAKE_ANCHOR_COUNTER;
+    if (process.env.FAKE_ANCHOR_IDL_NAME) env.FAKE_ANCHOR_IDL_NAME = process.env.FAKE_ANCHOR_IDL_NAME;
   }
   return env;
+}
+
+/**
+ * Anchor 0.31 writes `target/idl/<idl.metadata.name>.json`, where the name
+ * comes from the `#[program]` module. That is not necessarily the package
+ * name the API uses for the `.so` (e.g. template `anchor-project` compiles to
+ * `anchor_project.so` but declares `pub mod myproject`). Read whichever JSON
+ * the toolchain actually produced instead of assuming the two names match.
+ */
+async function readGeneratedIdl(
+  projectDir: string,
+  pkgName: string,
+): Promise<Record<string, unknown> | undefined> {
+  const idlDir = path.join(projectDir, "target", "idl");
+  const candidates = [path.join(idlDir, `${pkgName}.json`)];
+  for (const entry of await readdir(idlDir).catch(() => [] as string[])) {
+    if (!entry.endsWith(".json")) continue;
+    const candidate = path.join(idlDir, entry);
+    if (!candidates.includes(candidate)) candidates.push(candidate);
+  }
+  for (const candidate of candidates) {
+    try {
+      const parsed: unknown = JSON.parse(await readFile(candidate, "utf8"));
+      if (
+        parsed &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed) &&
+        Array.isArray((parsed as { instructions?: unknown }).instructions)
+      ) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* Not a usable IDL; keep looking. */
+    }
+  }
+  return undefined;
 }
 
 function killProcessTree(pid: number): void {
@@ -507,14 +544,8 @@ export class SandboxedBuildService {
       }
 
       const soPath = path.join(projectDir, "target", "deploy", `${pkgName}.so`);
-      const idlPath = path.join(projectDir, "target", "idl", `${pkgName}.json`);
       const soBuf = await readFile(soPath);
-      let idlJson: Record<string, unknown> | undefined;
-      try {
-        idlJson = JSON.parse(await readFile(idlPath, "utf8"));
-      } catch {
-        idlJson = undefined;
-      }
+      const idlJson = await readGeneratedIdl(projectDir, pkgName);
 
       const artifactDir = path.join(this.cacheDir, cacheKey);
       await this.writeCacheAtomic(artifactDir, cacheKey, {

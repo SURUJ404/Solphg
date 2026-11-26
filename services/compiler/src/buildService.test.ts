@@ -53,6 +53,7 @@ const MANAGED = [
   'TOOLCHAIN_TAG',
   'FAKE_ANCHOR_MODE',
   'FAKE_ANCHOR_COUNTER',
+  'FAKE_ANCHOR_IDL_NAME',
   'BUILD_CACHE_MAX_ENTRIES',
 ]
 
@@ -69,6 +70,7 @@ beforeEach(async () => {
   process.env.TOOLCHAIN_TAG = 'test-toolchain'
   process.env.FAKE_ANCHOR_MODE = 'ok'
   process.env.FAKE_ANCHOR_COUNTER = join(dir, 'count.txt')
+  delete process.env.FAKE_ANCHOR_IDL_NAME
   process.env.BUILD_CACHE_MAX_ENTRIES = '50'
 })
 
@@ -226,6 +228,27 @@ describe('SandboxedBuildService', () => {
     expect(second.cached).toBe(true)
     expect(second.soBase64).toBe(first.soBase64)
     expect(await invocationCount()).toBe(1)
+  })
+
+  it('finds an IDL named after the program module, not the Cargo package', async () => {
+    // Anchor 0.31 names target/idl/<file>.json from `#[program] pub mod ...`.
+    // The shipped counter template uses package `anchor_project` but module
+    // `myproject`, so reading only `${pkgName}.json` silently drops the IDL.
+    process.env.FAKE_ANCHOR_IDL_NAME = 'myproject'
+    const service = new SandboxedBuildService()
+    const input = { programName: 'anchor-project', programId: PROGRAM_ID, files: { 'lib.rs': SOURCE } }
+
+    const first = await service.build(input)
+    const idl = first.idlJson as
+      | { metadata?: { name?: string }; address?: string; instructions?: unknown[] }
+      | undefined
+    expect(idl?.metadata?.name).toBe('myproject')
+    expect(idl?.address).toBe(PROGRAM_ID)
+    expect(idl?.instructions).toHaveLength(1)
+
+    const cached = await service.build(input)
+    expect(cached.cached).toBe(true)
+    expect(cached.idlJson).toEqual(first.idlJson)
   })
 
   it('uses job-local SDK and rustup homes so builds need no root writes', async () => {
