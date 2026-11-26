@@ -30,7 +30,9 @@ services:
       - BUILD_TIMEOUT_MS=180000
       - BUILD_CACHE_DIR=/var/lib/solphg/cache
       - BUILD_WORK_DIR=/workspaces/build
-      - CORS_ORIGIN=http://localhost:3000
+      # Production config validates origins as https://. The integration test
+      # calls the API server-side, so this only needs to be a valid placeholder.
+      - CORS_ORIGIN=https://localhost:3000
       - TRUST_PROXY_HOPS=1
     volumes:
       - solphg-cache:/var/lib/solphg
