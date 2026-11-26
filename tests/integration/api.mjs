@@ -125,6 +125,10 @@ try {
   // Fail early and clearly when Docker cannot be reached (e.g. local dev box).
   docker(['info', '--format', '{{.ServerVersion}}'], { quiet: true })
 
+  // Build the heavy toolchain image first. Naming only `build-api` in
+  // `up --build` does not rebuild its `depends_on` base image, which would
+  // otherwise make the API image pull `solphg-builder:latest` from Docker Hub.
+  docker([...COMPOSE, 'build', 'builder-image'])
   docker([...COMPOSE, 'up', '-d', '--build', 'build-api'])
   started = true
 

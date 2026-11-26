@@ -34,8 +34,12 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 
 # Agave CLI suite. Provides solana, solana-keygen and cargo-build-sbf.
 ARG AGAVE_VERSION=v2.2.7
+# The bootstrap script forwards every argument to agave-install-init, whose
+# CLI shape is `agave-install-init [OPTIONS] <release>`. Passing only `-d`
+# drops the required positional release and makes the installer fail with
+# "Please specify the release to install", so pass the tag explicitly.
 RUN curl -sSfL "https://release.anza.xyz/${AGAVE_VERSION}/install" -o /tmp/agave-install.sh \
-    && sh /tmp/agave-install.sh -d "${SOLANA_HOME}" \
+    && sh /tmp/agave-install.sh "${AGAVE_VERSION}" -d "${SOLANA_HOME}" \
     && ln -sf "${SOLANA_HOME}/active_release/bin/"* /usr/local/bin/ \
     && solana --version \
     && cargo-build-sbf --version
