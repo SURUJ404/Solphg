@@ -40,9 +40,11 @@ services:
     tmpfs:
       # /tmp is only used for tiny keypair files; noexec is safe there.
       - /tmp:rw,noexec,nosuid,size=128m
-      # Build scripts execute from here, so this mount must stay executable.
-      # Owned by the non-root build user (uid/gid 10001).
-      - /workspaces:rw,nosuid,nodev,uid=10001,gid=10001,size=3g
+      # Docker prepends noexec to every tmpfs mount. The explicit exec option
+      # is required so Cargo can run build scripts from here, and it must
+      # survive any future edit to this line. Owned by the non-root build user
+      # (uid/gid 10001).
+      - /workspaces:rw,exec,nosuid,nodev,uid=10001,gid=10001,size=3g
     cap_drop:
       - ALL
     security_opt:
