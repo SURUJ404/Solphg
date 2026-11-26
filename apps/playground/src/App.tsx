@@ -8,6 +8,7 @@ import { SearchPanel } from './components/SearchPanel.js'
 import { BuildResult } from './components/BuildResult.js'
 import { Toolbar } from './components/Toolbar.js'
 import { TemplatePicker } from './components/TemplatePicker.js'
+import { StableSwapQuote } from './components/StableSwapQuote.js'
 import { AccountVisualizer } from './components/AccountVisualizer.js'
 import { ProjectManager, ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE, STABLESWAP_TEMPLATE } from '@solshift/plugin-manager'
 import { CompilerClient } from '@solshift/engine'
@@ -54,6 +55,15 @@ function BookIcon() {
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
       <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+    </svg>
+  )
+}
+
+function CalculatorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="2" width="16" height="20" rx="2" />
+      <path d="M8 6h8v4H8zM8 14h2M14 14h2M8 18h2M14 18h2" />
     </svg>
   )
 }
@@ -562,6 +572,13 @@ export function App() {
           >
             <BookIcon />
           </button>
+          <button
+            className={`icon-btn ${activeSidebar === 'quote' ? 'active' : ''}`}
+            onClick={() => setActiveSidebar(activeSidebar === 'quote' ? '' : 'quote')}
+            title="StableSwap Quote"
+          >
+            <CalculatorIcon />
+          </button>
           <div className="icon-sidebar-spacer" />
           <div className="icon-sidebar-bottom">
             <button
@@ -576,7 +593,7 @@ export function App() {
         {activeSidebar && (
           <aside className="side-panel">
             <div className="side-panel-header">
-              {activeSidebar === 'files' ? 'Explorer' : activeSidebar === 'search' ? 'Search' : 'Settings'}
+              {activeSidebar === 'files' ? 'Explorer' : activeSidebar === 'search' ? 'Search' : activeSidebar === 'docs' ? 'Docs' : activeSidebar === 'quote' ? 'StableSwap Quote' : 'Settings'}
             </div>
             <div className="side-panel-content">
               {activeSidebar === 'files' ? (
@@ -617,6 +634,8 @@ export function App() {
                 <SearchPanel files={project?.files || []} onFileSelect={handleFileSelect} />
               ) : activeSidebar === 'docs' ? (
                 <DocsPanel />
+              ) : activeSidebar === 'quote' ? (
+                <StableSwapQuote />
               ) : (
                 <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
                   Settings coming soon

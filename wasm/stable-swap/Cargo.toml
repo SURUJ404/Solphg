@@ -1,0 +1,15 @@
+[package]
+name = "stable-swap-wasm"
+version = "0.1.0"
+edition = "2021"
+description = "Dependency-free WebAssembly build of the StableSwap client math"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"

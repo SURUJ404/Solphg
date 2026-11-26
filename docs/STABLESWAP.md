@@ -102,3 +102,42 @@ const feeBudget = evaluateExpression('amountOut / 10000', {
 `+ - * / %`, parentheses and named bigint variables. It does **not** call
 `eval`, execute functions, or access object properties, so untrusted
 expressions cannot run code. Division by zero and unknown variables throw.
+
+## WebAssembly client math
+
+The same math is compiled to WebAssembly from `wasm/stable-swap` (dependency-free
+Rust, `wasm32-unknown-unknown`) and exposed through:
+
+```ts
+import {
+  initStableSwapWasm,
+  quoteWithWasmFallback,
+  wasmEvaluateExpression,
+} from '@solshift/integrations/stable-swap-wasm'
+```
+
+`quoteWithWasmFallback` uses WASM when available and transparently falls back
+to the TypeScript mirror. The playground's **StableSwap Quote** side panel uses
+this path and reports which engine produced the result.
+
+Rebuild the committed artifact whenever the Rust or TypeScript math changes:
+
+```sh
+rustup target add wasm32-unknown-unknown
+npm run build:wasm
+```
+
+The build copies `stable_swap_wasm.wasm` to
+`packages/integrations/assets/stable_swap.wasm`; Vite emits it as a hashed
+production asset. Tests in `stable-swap-wasm.test.ts` assert parity between the
+WASM and TypeScript implementations for invariants, quotes, fees, liquidity,
+oracle helpers and expression evaluation.
+
+Caveats:
+
+- WASM uses fixed-width `u128` slots with checked arithmetic; the TypeScript
+  mirror uses arbitrary-precision `bigint`. Results match for amounts that fit
+  in 128 bits (all realistic token amounts); larger inputs return a clear
+  overflow error from WASM.
+- The module never grows linear memory and has no imports or filesystem/network
+  access. Expression evaluation remains a hand-written parser, not `eval`.

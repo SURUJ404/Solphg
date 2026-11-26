@@ -36,6 +36,7 @@ const MIME = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
   '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
 }
 
 function fail(message) {
@@ -183,6 +184,15 @@ try {
   await page.getByRole('button', { name: '+ New from Template' }).click()
   await page.getByText('StableSwap AMM Pool', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
   await page.getByRole('button', { name: 'Cancel' }).click()
+
+  // The StableSwap quote panel loads the WASM math module and computes a quote.
+  await page.getByTitle('StableSwap Quote').click()
+  await page.getByText('Engine: WebAssembly', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
+  await page.getByRole('button', { name: 'Calculate quote' }).click()
+  await page.getByText('Amount out', { exact: true }).waitFor({ state: 'visible', timeout: 15_000 })
+  const amountOut = await page.locator('.quote-result > div').first().locator('strong').textContent()
+  assert(amountOut && /^\d+$/.test(amountOut.trim()), 'WASM quote did not produce a numeric amount')
+  assert(!pageErrors.some(e => /wasm/i.test(e)), `WASM page error: ${pageErrors.join('; ')}`)
 
   const buildButton = page.locator('.toolbar-actions button.btn-primary')
   await buildButton.waitFor({ state: 'visible', timeout: 15_000 })

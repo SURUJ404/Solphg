@@ -17,6 +17,10 @@
     "./stable-swap": {
       "types": "./dist/stable-swap.d.ts",
       "import": "./dist/stable-swap.js"
+    },
+    "./stable-swap-wasm": {
+      "types": "./dist/stable-swap-wasm.d.ts",
+      "import": "./dist/stable-swap-wasm.js"
     }
   },
   "scripts": {

@@ -14,6 +14,7 @@
     "test:coverage": "vitest run --coverage",
     "test:integration:api": "node tests/integration/api.mjs",
     "test:smoke:playground": "node tests/smoke/playground.mjs",
+    "build:wasm": "node scripts/build-stable-swap-wasm.mjs",
     "playwright:install": "playwright install chromium"
   },
   "devDependencies": {

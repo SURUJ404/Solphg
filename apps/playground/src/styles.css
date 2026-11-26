@@ -916,3 +916,35 @@ html, body, #root {
 .cu-profiler-hotspot-cu {
   color: #d29922;
 }
+
+/* ----------- StableSwap WASM quote panel ----------- */
+.quote-panel { padding: 12px; font-size: 12px; }
+.quote-intro { color: var(--text-muted); line-height: 1.5; margin: 0 0 8px; }
+.quote-engine {
+  display: inline-block; padding: 2px 8px; border-radius: 4px; margin-bottom: 12px;
+  background: var(--accent); color: #fff; font-size: 10px;
+}
+.quote-grid { display: flex; flex-direction: column; gap: 8px; }
+.quote-field { display: flex; flex-direction: column; gap: 4px; }
+.quote-field span { color: var(--text-muted); font-size: 11px; }
+.quote-field input {
+  background: var(--bg-input); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; width: 100%;
+}
+.quote-button { width: 100%; margin-top: 12px; }
+.quote-error {
+  margin-top: 10px; padding: 8px; border-radius: 6px;
+  background: rgba(255, 80, 80, 0.12); color: #ff8a8a; word-break: break-word;
+}
+.quote-result {
+  margin-top: 12px; border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.quote-result > div {
+  display: flex; justify-content: space-between; gap: 8px;
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+}
+.quote-result > div:last-child { border-bottom: none; }
+.quote-result span { color: var(--text-muted); }
+.quote-result strong { word-break: break-all; text-align: right; }
