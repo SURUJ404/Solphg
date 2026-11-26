@@ -2,6 +2,9 @@
 //   node fake-anchor.mjs build
 // Behaviour is controlled by FAKE_ANCHOR_MODE:
 //   ok | fail | sleep | hang | symlink-probe
+// FAKE_ANCHOR_IDL_NAME writes the IDL under a different name than the package,
+// in the Anchor 0.31 shape (metadata.name + top-level address), reproducing
+// programs whose #[program] module differs from the Cargo package name.
 // Every invocation appends a line to FAKE_ANCHOR_COUNTER (if set). In
 // symlink-probe mode it instead records the job toolchain layout as JSON.
 import { appendFileSync, mkdirSync, readdirSync, readlinkSync, statSync, writeFileSync } from 'node:fs';
@@ -53,11 +56,22 @@ if (mode === 'hang') {
     mkdirSync(outDir, { recursive: true });
     mkdirSync(idlDir, { recursive: true });
     const digest = createHash('sha256').update(`${program}:${mode}`).digest('hex');
-    writeFileSync(join(outDir, `${program}.so`), Buffer.from(`FAKE-SBF-${digest}`));
-    writeFileSync(
-      join(idlDir, `${program}.json`),
-      JSON.stringify({ version: '0.1.0', name: program, instructions: [], accounts: [] }),
-    );
+    // Cargo normalizes hyphens to underscores in the crate name, and so does
+    // the build service when it looks for the .so artifact.
+    const soName = program.replace(/-/g, '_');
+    writeFileSync(join(outDir, `${soName}.so`), Buffer.from(`FAKE-SBF-${digest}`));
+    const customIdlName = process.env.FAKE_ANCHOR_IDL_NAME;
+    const idlName = customIdlName || program;
+    const idl = customIdlName
+      ? {
+          address: '11111111111111111111111111111111',
+          metadata: { name: idlName, version: '0.1.0', spec: '0.1.0' },
+          instructions: [{ name: 'initialize', discriminator: [1, 2, 3, 4, 5, 6, 7, 8], accounts: [], args: [] }],
+          accounts: [],
+          types: [],
+        }
+      : { version: '0.1.0', name: program, instructions: [], accounts: [] };
+    writeFileSync(join(idlDir, `${idlName}.json`), JSON.stringify(idl));
     process.stdout.write(`fake anchor built ${program}\n`);
     process.exit(0);
   }, delay);
