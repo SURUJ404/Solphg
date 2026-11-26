@@ -522,7 +522,10 @@ export class SandboxedBuildService {
 
     const sharedHome = process.env.SOLANA_SHARED_HOME;
     if (sharedHome) {
-      await symlinkAsset(path.join(sharedHome, ".cache", "solana"), path.join(homeDir, ".cache", "solana"));
+      // builder.Dockerfile copies the warmed `$HOME/.cache/solana` tree to
+      // `$SOLANA_SHARED_HOME/solana`. A dangling symlink here makes
+      // cargo-build-sbf try to reinstall platform-tools and fail with EEXIST.
+      await symlinkAsset(path.join(sharedHome, "solana"), path.join(homeDir, ".cache", "solana"));
     } else if (process.env.HOME) {
       await symlinkAsset(path.join(process.env.HOME, ".cache", "solana"), path.join(homeDir, ".cache", "solana"));
     }
@@ -658,7 +661,9 @@ export class SandboxedBuildService {
 async function symlinkAsset(target: string, linkPath: string): Promise<void> {
   try {
     await mkdir(path.dirname(linkPath), { recursive: true });
-    await symlink(target, linkPath, "dir");
+    // Windows junctions do not require elevation; other platforms use a
+    // regular directory symlink.
+    await symlink(target, linkPath, process.platform === "win32" ? "junction" : "dir");
   } catch {
     /* target absent or link exists — non-fatal */
   }

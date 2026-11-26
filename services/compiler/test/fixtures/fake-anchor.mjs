@@ -1,14 +1,25 @@
 // Fake `anchor` executable used by the build-service tests. Invoked as:
 //   node fake-anchor.mjs build
 // Behaviour is controlled by FAKE_ANCHOR_MODE:
-//   ok | fail | sleep | hang
-// Every invocation appends a line to FAKE_ANCHOR_COUNTER (if set).
-import { appendFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+//   ok | fail | sleep | hang | symlink-probe
+// Every invocation appends a line to FAKE_ANCHOR_COUNTER (if set). In
+// symlink-probe mode it instead records the resolved HOME cache symlink.
+import { appendFileSync, mkdirSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const cwd = process.cwd();
-const mode = process.env.FAKE_ANCHOR_MODE || 'ok';
+let mode = process.env.FAKE_ANCHOR_MODE || 'ok';
+
+if (mode === 'symlink-probe') {
+  // Record the resolved cache symlink, then continue with a normal build so
+  // the caller still receives valid artifacts.
+  writeFileSync(
+    process.env.FAKE_ANCHOR_COUNTER,
+    `${readlinkSync(join(process.env.HOME, '.cache', 'solana'))}\n`,
+  );
+  mode = 'ok';
+}
 
 if (process.env.FAKE_ANCHOR_COUNTER) {
   appendFileSync(process.env.FAKE_ANCHOR_COUNTER, `${process.pid}\n`);
