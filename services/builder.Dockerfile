@@ -58,7 +58,13 @@ RUN solana-keygen new --no-bip39-passphrase --silent --force \
 # Warm the Cargo registry and download SBF platform-tools with a project
 # that depends on BOTH anchor-lang and anchor-spl. The SPL template would
 # otherwise fail offline.
+#
+# The canonical lockfile pins transitive crates to their last edition-2021 /
+# Rust-1.79-compatible releases. SBF platform-tools ships Cargo 1.79, which
+# cannot parse edition-2024 manifests, so resolution must be pinned rather
+# than left to the host Cargo at image build time.
 WORKDIR /opt/warmup
+COPY canonical-anchor.lock /opt/warmup/Cargo.lock
 RUN mkdir -p programs/warmup/src \
     && printf '%s\n' \
       '[features]' \
