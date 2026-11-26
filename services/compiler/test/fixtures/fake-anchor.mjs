@@ -3,8 +3,8 @@
 // Behaviour is controlled by FAKE_ANCHOR_MODE:
 //   ok | fail | sleep | hang | symlink-probe
 // Every invocation appends a line to FAKE_ANCHOR_COUNTER (if set). In
-// symlink-probe mode it instead records the resolved HOME cache symlink.
-import { appendFileSync, mkdirSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs';
+// symlink-probe mode it instead records the job toolchain layout as JSON.
+import { appendFileSync, mkdirSync, readdirSync, readlinkSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
@@ -12,12 +12,24 @@ const cwd = process.cwd();
 let mode = process.env.FAKE_ANCHOR_MODE || 'ok';
 
 if (mode === 'symlink-probe') {
-  // Record the resolved cache symlink, then continue with a normal build so
-  // the caller still receives valid artifacts.
-  writeFileSync(
-    process.env.FAKE_ANCHOR_COUNTER,
-    `${readlinkSync(join(process.env.HOME, '.cache', 'solana'))}\n`,
-  );
+  // Record the toolchain layout, then continue with a normal build so the
+  // caller still receives valid artifacts.
+  try {
+    const sdk = process.env.SBF_SDK_PATH;
+    writeFileSync(
+      process.env.FAKE_ANCHOR_COUNTER,
+      `${JSON.stringify({
+        cache: readlinkSync(join(process.env.HOME, '.cache', 'solana')),
+        sdk,
+        sdkLink: sdk ? readlinkSync(join(sdk, 'dependencies', 'platform-tools')) : null,
+        rustupHome: process.env.RUSTUP_HOME || null,
+        sdkDeps: sdk ? readdirSync(join(sdk, 'dependencies')).sort() : [],
+        cargoRegistryIsDir: statSync(join(process.env.CARGO_HOME, 'registry')).isDirectory(),
+      })}\n`,
+    );
+  } catch (err) {
+    writeFileSync(process.env.FAKE_ANCHOR_COUNTER, `${JSON.stringify({ error: err.message })}\n`);
+  }
   mode = 'ok';
 }
 

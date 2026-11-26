@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
+  copyFile,
   mkdir,
   readFile,
   readdir,
@@ -29,6 +30,8 @@ const MAX_FILES = 40;
 const MAX_FILE_BYTES = 200_000;
 const CACHE_SCHEMA = "v2";
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+const SOLANA_SDK_SRC = "/usr/local/solana/active_release/bin/platform-tools-sdk/sbf";
+const RUSTUP_SRC = "/usr/local/rustup";
 
 export class BuildQueueFullError extends Error {
   readonly code = "BUILD_QUEUE_FULL";
@@ -167,7 +170,13 @@ export function syncDeclareId(files: Record<string, string>, programId: string):
   return out;
 }
 
-function baseEnv(cwd: string, homeDir: string, cargoHome: string): NodeJS.ProcessEnv {
+function baseEnv(
+  cwd: string,
+  homeDir: string,
+  cargoHome: string,
+  sbfSdkDir?: string,
+  rustupHome?: string,
+): NodeJS.ProcessEnv {
   // Scrubbed environment: never forward faucet keys, API tokens, or the
   // server's own env to untrusted build code.
   const env: NodeJS.ProcessEnv = {
@@ -180,7 +189,12 @@ function baseEnv(cwd: string, homeDir: string, cargoHome: string): NodeJS.Proces
       process.env.BUILD_RUSTFLAGS ||
       `--remap-path-prefix=${cwd}=workspace --remap-path-prefix=${homeDir}=home`,
   };
-  if (process.env.RUSTUP_HOME) env.RUSTUP_HOME = process.env.RUSTUP_HOME;
+  // The API container runs with a read-only root filesystem. Give each job a
+  // writable SBF SDK and rustup home on tmpfs so cargo-build-sbf never has to
+  // rewrite the image-owned symlink or toolchain link.
+  if (sbfSdkDir) env.SBF_SDK_PATH = sbfSdkDir;
+  if (rustupHome) env.RUSTUP_HOME = rustupHome;
+  else if (process.env.RUSTUP_HOME) env.RUSTUP_HOME = process.env.RUSTUP_HOME;
   if (process.env.SOLANA_CACHE_SRC) env.SOLANA_CACHE_SRC = process.env.SOLANA_CACHE_SRC;
   if (process.env.ANCHOR_BIN) env.ANCHOR_BIN = process.env.ANCHOR_BIN;
   // Test-only knobs for the fake anchor fixture. Never forwarded for the real binary.
@@ -221,6 +235,8 @@ function runAnchor(
   homeDir: string,
   cargoHome: string,
   timeoutMs: number,
+  sbfSdkDir?: string,
+  rustupHome?: string,
 ): Promise<ExecResult> {
   const configured = envStr("ANCHOR_BIN", "anchor");
   const isScript = /\.(mjs|cjs|js)$/i.test(configured);
@@ -230,7 +246,7 @@ function runAnchor(
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
-      env: baseEnv(cwd, homeDir, cargoHome),
+      env: baseEnv(cwd, homeDir, cargoHome, sbfSdkDir, rustupHome),
       stdio: ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32",
       windowsHide: true,
@@ -446,7 +462,7 @@ export class SandboxedBuildService {
     const pkgName = input.programName.replace(/-/g, "_");
 
     try {
-      await this.prepareDirs(jobDir, homeDir, cargoHome);
+      const toolchainDirs = await this.prepareDirs(jobDir, homeDir, cargoHome);
       const srcDir = path.join(projectDir, "programs", input.programName, "src");
       await mkdir(srcDir, { recursive: true });
 
@@ -475,7 +491,14 @@ export class SandboxedBuildService {
 
       let logs = "";
       try {
-        const result = await runAnchor(projectDir, homeDir, cargoHome, this.timeoutMs);
+        const result = await runAnchor(
+          projectDir,
+          homeDir,
+          cargoHome,
+          this.timeoutMs,
+          toolchainDirs.sbfSdkDir,
+          toolchainDirs.rustupHome,
+        );
         logs = `${result.stdout}\n${result.stderr}`.trim();
       } catch (err) {
         const withLogs = err as Error & { logs?: string };
@@ -515,7 +538,11 @@ export class SandboxedBuildService {
     }
   }
 
-  private async prepareDirs(jobDir: string, homeDir: string, cargoHome: string): Promise<void> {
+  private async prepareDirs(
+    jobDir: string,
+    homeDir: string,
+    cargoHome: string,
+  ): Promise<{ sbfSdkDir?: string; rustupHome?: string }> {
     await mkdir(path.join(homeDir, ".config", "solana"), { recursive: true });
     await mkdir(path.join(homeDir, ".cache"), { recursive: true });
     await mkdir(cargoHome, { recursive: true });
@@ -526,20 +553,80 @@ export class SandboxedBuildService {
       // `$SOLANA_SHARED_HOME/solana`. A dangling symlink here makes
       // cargo-build-sbf try to reinstall platform-tools and fail with EEXIST.
       await symlinkAsset(path.join(sharedHome, "solana"), path.join(homeDir, ".cache", "solana"));
-    } else if (process.env.HOME) {
-      await symlinkAsset(path.join(process.env.HOME, ".cache", "solana"), path.join(homeDir, ".cache", "solana"));
+
+      const versions = (await readdir(path.join(sharedHome, "solana")).catch(() => [] as string[]))
+        .filter((name) => /^v\d+\.\d+$/.test(name));
+      const version = process.env.SOLANA_PLATFORM_TOOLS_VERSION ||
+        (versions.includes("v1.45") ? "v1.45" : versions[0]) || "v1.45";
+      const toolsPath = path.join(homeDir, ".cache", "solana", version, "platform-tools");
+
+      // The API container has a read-only root filesystem. cargo-build-sbf
+      // insists on pointing `<sdk>/dependencies/platform-tools` at
+      // `$HOME/.cache/solana/<version>/platform-tools`, so give every job its
+      // own SDK directory on the writable /workspaces tmpfs. The link target
+      // is exactly the string cargo-build-sbf computes, so it never rewrites
+      // the symlink.
+      const sbfSdkDir = path.join(jobDir, "sbf-sdk");
+      await mkdir(path.join(sbfSdkDir, "dependencies"), { recursive: true });
+      const sdkSrc = envStr("SOLANA_SDK_SRC", SOLANA_SDK_SRC);
+      for (const entry of await readdir(sdkSrc).catch(() => [] as string[])) {
+        if (entry !== "dependencies") {
+          await symlinkAsset(path.join(sdkSrc, entry), path.join(sbfSdkDir, entry));
+        }
+      }
+      const depsDir = path.join(sbfSdkDir, "dependencies");
+      // Copy the marker files and the Criterion link from the image SDK.
+      // `scripts/install.sh` (sourced by strip.sh at the end of every build)
+      // downloads toolchains whenever a link or its marker is missing; on a
+      // read-only container that download can never be written.
+      for (const entry of await readdir(path.join(sdkSrc, "dependencies")).catch(() => [] as string[])) {
+        if (entry !== "platform-tools" && entry !== "criterion") {
+          await symlinkAsset(path.join(sdkSrc, "dependencies", entry), path.join(depsDir, entry));
+        }
+      }
+      const linkType = process.platform === "win32" ? "junction" : "dir";
+      await symlink(
+        path.join(homeDir, ".cache", "solana", envStr("SOLANA_CRITERION_VERSION", "v2.3.3"), "criterion"),
+        path.join(depsDir, "criterion"),
+        linkType,
+      );
+      await symlink(toolsPath, path.join(depsDir, "platform-tools"), linkType);
+
+      // Same story for rustup: `cargo +solana` needs a writable toolchain
+      // registry. Seed it from the image and pre-link the job's platform
+      // tools so cargo-build-sbf does not try to write to /usr/local/rustup.
+      const rustupHome = path.join(jobDir, "rustup-home");
+      await mkdir(path.join(rustupHome, "toolchains"), { recursive: true });
+      const rustupSrc = envStr("RUSTUP_HOME_SRC", process.env.RUSTUP_HOME || RUSTUP_SRC);
+      for (const entry of await readdir(path.join(rustupSrc, "toolchains")).catch(() => [] as string[])) {
+        if (entry !== "solana") {
+          await symlinkAsset(
+            path.join(rustupSrc, "toolchains", entry),
+            path.join(rustupHome, "toolchains", entry),
+          );
+        }
+      }
+      await symlink(
+        path.join(sbfSdkDir, "dependencies", "platform-tools", "rust"),
+        path.join(rustupHome, "toolchains", "solana"),
+        process.platform === "win32" ? "junction" : "dir",
+      ).catch(() => {});
+      await copyFile(
+        path.join(rustupSrc, "settings.toml"),
+        path.join(rustupHome, "settings.toml"),
+      ).catch(() => {});
+
+      await symlinkFarm("/usr/local/cargo/registry", path.join(cargoHome, "registry"));
+      await symlinkFarm("/usr/local/cargo/git", path.join(cargoHome, "git"));
+      return { sbfSdkDir, rustupHome };
     }
 
-    await symlinkAsset("/usr/local/cargo/registry", path.join(cargoHome, "registry"));
-    await symlinkAsset("/usr/local/cargo/git", path.join(cargoHome, "git"));
-
-    // Anchor only needs a syntactically valid wallet for provider config.
-    const dummy = Keypair.generate();
-    await writeFile(
-      path.join(homeDir, ".config", "solana", "id.json"),
-      JSON.stringify(Array.from(dummy.secretKey)),
-      { mode: 0o600 },
-    ).catch(() => {});
+    if (process.env.HOME) {
+      await symlinkAsset(path.join(process.env.HOME, ".cache", "solana"), path.join(homeDir, ".cache", "solana"));
+    }
+    await symlinkFarm("/usr/local/cargo/registry", path.join(cargoHome, "registry"));
+    await symlinkFarm("/usr/local/cargo/git", path.join(cargoHome, "git"));
+    return {};
   }
 
   private async copyCanonicalLock(projectDir: string): Promise<void> {
@@ -666,6 +753,16 @@ async function symlinkAsset(target: string, linkPath: string): Promise<void> {
     await symlink(target, linkPath, process.platform === "win32" ? "junction" : "dir");
   } catch {
     /* target absent or link exists — non-fatal */
+  }
+}
+
+// Replicate the top level of a read-only cache into a writable job-local
+// directory. Cargo only needs to create lock files at the root; the registry
+// and git data themselves stay symlinked to the immutable image data.
+async function symlinkFarm(src: string, dest: string): Promise<void> {
+  await mkdir(dest, { recursive: true });
+  for (const entry of await readdir(src).catch(() => [] as string[])) {
+    await symlinkAsset(path.join(src, entry), path.join(dest, entry));
   }
 }
 

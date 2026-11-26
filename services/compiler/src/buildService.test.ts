@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -46,6 +46,8 @@ const MANAGED = [
   'BUILD_WORK_DIR',
   'CANONICAL_ANCHOR_LOCK',
   'SOLANA_SHARED_HOME',
+  'SOLANA_SDK_SRC',
+  'SOLANA_CRITERION_VERSION',
   'MAX_CONCURRENT_BUILDS',
   'BUILD_TIMEOUT_MS',
   'TOOLCHAIN_TAG',
@@ -226,17 +228,30 @@ describe('SandboxedBuildService', () => {
     expect(await invocationCount()).toBe(1)
   })
 
-  it('links the warmed platform-tools cache into the job home', async () => {
+  it('uses job-local SDK and rustup homes so builds need no root writes', async () => {
     const shared = join(dir, 'shared-solana-home')
-    await mkdir(join(shared, 'solana'), { recursive: true })
+    await mkdir(join(shared, 'solana', 'v1.45'), { recursive: true })
+    const sdkSrc = join(dir, 'sdk-src', 'dependencies')
+    await mkdir(sdkSrc, { recursive: true })
+    await writeFile(join(sdkSrc, 'platform-tools-v1.45.md'), '')
+    await writeFile(join(sdkSrc, 'criterion-v2.3.3.md'), '')
     process.env.SOLANA_SHARED_HOME = shared
+    process.env.SOLANA_SDK_SRC = join(dir, 'sdk-src')
     process.env.FAKE_ANCHOR_MODE = 'symlink-probe'
 
     const service = new SandboxedBuildService()
     await service.build({ programName: 'counter', programId: PROGRAM_ID, files: { 'lib.rs': SOURCE } })
 
-    const probe = await readFile(process.env.FAKE_ANCHOR_COUNTER!, 'utf8')
-    expect(probe.trim().split('\n')[0]).toBe(join(shared, 'solana'))
+    const probe = JSON.parse(
+      (await readFile(process.env.FAKE_ANCHOR_COUNTER!, 'utf8')).trim().split('\n')[0],
+    )
+    expect(probe.cache).toBe(join(shared, 'solana'))
+    expect(probe.sdk).toContain(join(dir, 'work'))
+    expect(probe.sdkLink).toContain(join('.cache', 'solana', 'v1.45', 'platform-tools'))
+    expect(probe.rustupHome).toContain(join(dir, 'work'))
+    expect(probe.sdkDeps).toContain('platform-tools-v1.45.md')
+    expect(probe.sdkDeps).toContain('criterion-v2.3.3.md')
+    expect(probe.cargoRegistryIsDir).toBe(true)
   })
 
   it('misses the cache when source changes', async () => {
