@@ -111,10 +111,19 @@ async function postBuild(request) {
   return { status: res.status, body }
 }
 
+// Keep base64 bytecode out of failure messages, but surface the compiler logs
+// tail so a failed build explains itself in the CI output.
+function responseDetails({ status, body }) {
+  const { program: _program, logs: rawLogs, ...meta } = body || {}
+  const logs = typeof rawLogs === 'string' ? rawLogs.slice(-8000) : ''
+  return `HTTP ${status}: ${JSON.stringify(meta).slice(0, 500)}` +
+    (logs ? `\n--- build logs (tail) ---\n${logs}` : '')
+}
+
 function checkArtifact(label, result, { expectCached }) {
-  assert(result.status === 200, `${label}: expected HTTP 200, got ${result.status}: ${JSON.stringify(result.body).slice(0, 500)}`)
+  assert(result.status === 200, `${label}: expected HTTP 200, got ${responseDetails(result)}`)
   const body = result.body
-  assert(body.success === true, `${label}: build reported failure: ${JSON.stringify(body).slice(0, 500)}`)
+  assert(body.success === true, `${label}: build reported failure: ${responseDetails(result)}`)
   assert(typeof body.program === 'string' && body.program.length > 100, `${label}: missing or empty .so bytecode`)
   assert(body.cached === expectCached, `${label}: expected cached=${expectCached}, got ${body.cached}`)
   assert(body.programId === PROGRAM_ID, `${label}: program ID mismatch: ${body.programId}`)
@@ -126,17 +135,20 @@ function checkArtifact(label, result, { expectCached }) {
   assert(so[0] === 0x7f && so[1] === 0x45 && so[2] === 0x4c && so[3] === 0x46,
     `${label}: .so is not an ELF binary (first bytes ${so.subarray(0, 4).toString('hex')})`)
 
-  assert(body.idl && typeof body.idl === 'object', `${label}: missing IDL`)
+  assert(body.idl && typeof body.idl === 'object', `${label}: missing IDL: ${responseDetails(result)}`)
   assert(Array.isArray(body.idl.instructions), `${label}: IDL has no instructions array`)
   assert(body.idl.instructions.length > 0, `${label}: IDL instructions are empty`)
-  assert(typeof body.idl.name === 'string' && body.idl.name.length > 0, `${label}: IDL has no name`)
-  assert(body.idl.address === PROGRAM_ID, `${label}: IDL address ${body.idl.address} != ${PROGRAM_ID}`)
+  // Anchor 0.31 puts the name in metadata; older IDLs have it at the top level.
+  const idlName = body.idl.name ?? body.idl.metadata?.name
+  const idlAddress = body.idl.address ?? body.idl.metadata?.address
+  assert(typeof idlName === 'string' && idlName.length > 0, `${label}: IDL has no name`)
+  assert(idlAddress === PROGRAM_ID, `${label}: IDL address ${idlAddress} != ${PROGRAM_ID}`)
 
   return {
     template: label,
     cached: body.cached,
     soBytes: so.length,
-    idlName: body.idl.name,
+    idlName,
     instructions: body.idl.instructions.length,
     durationMs: body.durationMs,
     cacheKey: body.cacheKey.slice(0, 12),
