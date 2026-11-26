@@ -66,7 +66,16 @@ async function waitForHealth() {
     }
     await sleep(2_000)
   }
-  throw new Error(`API did not become healthy within ${HEALTH_TIMEOUT_MS} ms: ${lastError}`)
+  let logs = ''
+  try {
+    logs = docker([...COMPOSE, 'logs', '--tail', '200', 'build-api'], { quiet: true }).trim()
+  } catch {
+    // Keep the original health error as the primary failure.
+  }
+  throw new Error(
+    `API did not become healthy within ${HEALTH_TIMEOUT_MS} ms: ${lastError}` +
+      (logs ? `\n--- build-api logs ---\n${logs}` : ''),
+  )
 }
 
 function toBuildRequest(template) {

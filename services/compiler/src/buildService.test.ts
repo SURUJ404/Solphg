@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -224,6 +224,19 @@ describe('SandboxedBuildService', () => {
     expect(second.cached).toBe(true)
     expect(second.soBase64).toBe(first.soBase64)
     expect(await invocationCount()).toBe(1)
+  })
+
+  it('links the warmed platform-tools cache into the job home', async () => {
+    const shared = join(dir, 'shared-solana-home')
+    await mkdir(join(shared, 'solana'), { recursive: true })
+    process.env.SOLANA_SHARED_HOME = shared
+    process.env.FAKE_ANCHOR_MODE = 'symlink-probe'
+
+    const service = new SandboxedBuildService()
+    await service.build({ programName: 'counter', programId: PROGRAM_ID, files: { 'lib.rs': SOURCE } })
+
+    const probe = await readFile(process.env.FAKE_ANCHOR_COUNTER!, 'utf8')
+    expect(probe.trim().split('\n')[0]).toBe(join(shared, 'solana'))
   })
 
   it('misses the cache when source changes', async () => {

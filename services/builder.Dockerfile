@@ -140,6 +140,9 @@ RUN mkdir -p programs/warmup/src \
 RUN useradd --create-home --uid 10001 --shell /bin/bash solbuilder \
     && mkdir -p /workspaces/build /app /var/lib/solphg/cache \
     && chown -R solbuilder:solbuilder /workspaces /app /var/lib/solphg \
+    && find /usr/local/solana -type d -path '*/platform-tools-sdk/sbf/dependencies' \
+        -exec chown -R solbuilder:solbuilder {} + \
+    && chown -R solbuilder:solbuilder /usr/local/rustup \
     && chmod -R a+rX /usr/local/cargo /usr/local/rustup /usr/local/solana /usr/local/share/solana-cache
 
 # Build work must live on an executable tmpfs, never on the noexec /tmp mount:
