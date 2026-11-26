@@ -14,9 +14,11 @@
 // a clear message instead of silently skipping.
 
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE } from '@solshift/plugin-manager'
 
 const COMPOSE = ['compose', '-f', 'services/docker-compose.yml']
+const COMPOSE_FILE = new URL('../../services/docker-compose.yml', import.meta.url)
 const API = process.env.API_URL || 'http://127.0.0.1:8080'
 const PROGRAM_ID = '11111111111111111111111111111111' // deterministic for cache-key stability
 const BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS || 300_000)
@@ -47,6 +49,18 @@ function docker(args, opts = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Docker mounts every tmpfs with noexec unless `exec` is passed explicitly.
+// Cargo writes build scripts into the work dir and then executes them, so a
+// missing `exec` token produces an opaque EACCES during the first build.
+function assertExecutableWorkTmpfs() {
+  const compose = readFileSync(COMPOSE_FILE, 'utf8')
+  const line = compose.split(/\r?\n/).find((entry) => /^\s*-\s*\/workspaces:/.test(entry))
+  assert(line, 'services/docker-compose.yml: missing /workspaces tmpfs entry')
+  const options = (line.split(':')[1] || '').split(',').map((option) => option.trim())
+  assert(options.includes('exec') && !options.includes('noexec'),
+    'services/docker-compose.yml: /workspaces tmpfs must include exec so Cargo build scripts can run')
 }
 
 async function waitForHealth() {
@@ -131,6 +145,8 @@ function checkArtifact(label, result, { expectCached }) {
 
 let started = false
 try {
+  assertExecutableWorkTmpfs()
+
   // Fail early and clearly when Docker cannot be reached (e.g. local dev box).
   docker(['info', '--format', '{{.ServerVersion}}'], { quiet: true })
 
