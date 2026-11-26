@@ -90,13 +90,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build (and push on main)
+      # Keep `load: true` so the smoke tests can use the local `solphg-builder:ci`
+      # tag. buildx pushes every tag when `push: true`, which would try to push
+      # that local-only tag to Docker Hub. Publish explicitly below instead.
+      - name: Build image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: services
           file: services/builder.Dockerfile
           load: true
-          push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
           tags: |
             solphg-builder:ci
             ghcr.io/${{ steps.repo.outputs.owner }}/solphg-builder:latest
@@ -131,6 +133,16 @@ jobs:
 
       - name: Audit Rust dependencies
         run: cargo audit --file ./canonical-anchor.lock
+
+      - name: Push verified image to GHCR on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          OWNER: ${{ steps.repo.outputs.owner }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker push "ghcr.io/$OWNER/solphg-builder:latest"
+          docker push "ghcr.io/$OWNER/solphg-builder:$SHA"
 
   api-integration:
     name: API integration
