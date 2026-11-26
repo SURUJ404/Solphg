@@ -19,14 +19,14 @@ COPY compiler/tsconfig.json ./
 COPY compiler/src ./src
 RUN npx tsc \
     && npm prune --omit=dev \
-    && chown -R solbuilder:solbuilder /app /var/lib/solphg /tmp/solphg-work
+    && chown -R solbuilder:solbuilder /app /var/lib/solphg
 
 USER solbuilder
 
 ENV NODE_ENV=production \
     PORT=8080 \
     BUILD_CACHE_DIR=/var/lib/solphg/cache \
-    BUILD_WORK_DIR=/tmp/solphg-work \
+    BUILD_WORK_DIR=/workspaces/build \
     BUILD_TIMEOUT_MS=180000
 
 EXPOSE 8080

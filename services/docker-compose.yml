@@ -29,15 +29,18 @@ services:
       - MAX_CONCURRENT_BUILDS=2
       - BUILD_TIMEOUT_MS=180000
       - BUILD_CACHE_DIR=/var/lib/solphg/cache
-      - BUILD_WORK_DIR=/tmp/solphg-work
+      - BUILD_WORK_DIR=/workspaces/build
       - CORS_ORIGIN=http://localhost:3000
       - TRUST_PROXY_HOPS=1
     volumes:
       - solphg-cache:/var/lib/solphg
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=2g
-      - /workspaces:rw,nosuid,size=128m
+      # /tmp is only used for tiny keypair files; noexec is safe there.
+      - /tmp:rw,noexec,nosuid,size=128m
+      # Build scripts execute from here, so this mount must stay executable.
+      # Owned by the non-root build user (uid/gid 10001).
+      - /workspaces:rw,nosuid,nodev,uid=10001,gid=10001,size=3g
     cap_drop:
       - ALL
     security_opt:

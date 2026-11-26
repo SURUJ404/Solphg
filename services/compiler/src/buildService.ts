@@ -317,7 +317,7 @@ export class SandboxedBuildService {
   }
 
   private get workRoot(): string {
-    return envStr("BUILD_WORK_DIR", "/tmp/solphg-work");
+    return envStr("BUILD_WORK_DIR", "/workspaces/build");
   }
 
   public computeCacheKey(

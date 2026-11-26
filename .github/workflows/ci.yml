@@ -6,10 +6,10 @@ on:
   pull_request:
     branches: [main]
 
-# Least privilege: the builder image job only needs packages:write on main.
+# Jobs declare their own permissions. The verify job needs only read access;
+# packages:write is granted solely to the job that publishes to GHCR.
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -22,6 +22,8 @@ jobs:
   verify:
     name: Typecheck, test, audit
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -69,6 +71,9 @@ jobs:
   builder-image:
     name: Builder image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -111,3 +116,18 @@ jobs:
           docker run --rm solphg-builder:ci test -f /usr/local/cargo/canonical-anchor.lock
           docker run --rm solphg-builder:ci test -d /usr/local/share/solana-cache/solana
           docker run --rm solphg-builder:ci test -w /workspaces
+          docker run --rm solphg-builder:ci test -w /workspaces/build
+
+      - name: Extract canonical Cargo lockfile
+        run: |
+          set -euo pipefail
+          container="$(docker create solphg-builder:ci)"
+          docker cp "$container:/usr/local/cargo/canonical-anchor.lock" ./canonical-anchor.lock
+          docker rm "$container"
+          test -s ./canonical-anchor.lock
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit Rust dependencies
+        run: cargo audit --file ./canonical-anchor.lock

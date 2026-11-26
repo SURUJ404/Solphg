@@ -128,14 +128,16 @@ RUN mkdir -p programs/warmup/src \
 
 # Non-root runtime identity for compiling untrusted code.
 RUN useradd --create-home --uid 10001 --shell /bin/bash solbuilder \
-    && mkdir -p /workspaces /app /var/lib/solphg/cache /tmp/solphg-work \
-    && chown -R solbuilder:solbuilder /workspaces /app /var/lib/solphg /tmp/solphg-work \
+    && mkdir -p /workspaces/build /app /var/lib/solphg/cache \
+    && chown -R solbuilder:solbuilder /workspaces /app /var/lib/solphg \
     && chmod -R a+rX /usr/local/cargo /usr/local/rustup /usr/local/solana /usr/local/share/solana-cache
 
+# Build work must live on an executable tmpfs, never on the noexec /tmp mount:
+# cargo build-sbf writes and executes generated scripts in this directory.
 ENV CARGO_NET_OFFLINE=true \
     SOLANA_SHARED_HOME=/usr/local/share/solana-cache \
     BUILD_CACHE_DIR=/var/lib/solphg/cache \
-    BUILD_WORK_DIR=/tmp/solphg-work
+    BUILD_WORK_DIR=/workspaces/build
 
 USER solbuilder
 WORKDIR /workspaces

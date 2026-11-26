@@ -1,330 +1,554 @@
-import express, { Request, Response } from "express";
+import express, { NextFunction, Request, Response } from "express";
 import cors from "cors";
 import rateLimit from "express-rate-limit";
 import * as fs from "fs/promises";
+import * as os from "os";
 import * as path from "path";
-import { execSync } from "child_process";
-import { runBuild } from "./buildService";
+import { randomUUID } from "crypto";
+import { spawn, ChildProcess } from "child_process";
+import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { buildService, runBuild } from "./buildService";
 import { BuildRequest } from "./types";
 import { parseCpiLogs, parseCpuProfileLogs } from "./log-parsers";
 import type { CpiNode } from "./log-parsers";
-import { v4 as uuidv4 } from "uuid";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { loadConfig, AppConfig } from "./config";
+import { log, redactText } from "./logger";
+import { metrics } from "./metrics";
+import { killProcessTree, runFile } from "./exec";
+import { createFaucetLedger, FaucetLedger } from "./faucet";
+import { IpQuota } from "./quota";
+import {
+  Cluster,
+  MAX_IDL_BYTES,
+  MAX_LOGS_CHARS,
+  MAX_SO_BYTES,
+  decodeBase64Bounded,
+  firstErrorLine,
+  isCluster,
+  isValidAddress,
+  isValidSecretHex,
+  parseSolAmount,
+  resolveRpc,
+  safeTokenEqual,
+} from "./security";
 
-const PORT = Number(process.env.PORT || 8080);
-const MAX_CONCURRENT_BUILDS = Number(process.env.MAX_CONCURRENT_BUILDS || 2);
-
-const buildSem = { count: 0, max: MAX_CONCURRENT_BUILDS };
-function acquireBuild(): boolean {
-  if (buildSem.count >= buildSem.max) return false;
-  buildSem.count++;
-  return true;
+// Fail fast on invalid configuration before the server accepts traffic.
+let config: AppConfig;
+try {
+  config = loadConfig();
+} catch (err) {
+  log.error("invalid configuration", { error: (err as Error).message });
+  process.exit(1);
 }
-function releaseBuild(): void { buildSem.count--; }
 
-const CLUSTER_RPCS: Record<string, string> = {
-  devnet: "https://api.devnet.solana.com",
-  testnet: "https://api.testnet.solana.com",
-  "mainnet-beta": "https://api.mainnet-beta.solana.com",
-};
-
-function resolveRpc(cluster?: string): string {
-  return (cluster && CLUSTER_RPCS[cluster]) || CLUSTER_RPCS.devnet;
-}
-
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
-  : ['https://suruj404.github.io', 'https://solphg-playground.vercel.app']
-
-const opSem = { count: 0, max: parseInt(process.env.MAX_CONCURRENT_OPS || "3") }
-function acquireOp(): boolean {
-  if (opSem.count >= opSem.max) return false
-  opSem.count++
-  return true
-}
-function releaseOp(): void { opSem.count-- }
-
-const faucetCooldowns = new Map<string, number>()
-
-const limiter = rateLimit({
-  windowMs: 60_000,
-  max: parseInt(process.env.RATE_LIMIT_MAX || "30"),
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Too many requests. Try again later." },
-})
+process.umask(0o077);
 
 const app = express();
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.some(o => origin.startsWith(o)) || /\.vercel\.app$/.test(origin)) {
-      callback(null, true)
-    } else {
-      callback(null, false)
-    }
-  },
-}));
-app.use(limiter)
-app.use(express.json({ limit: "5mb" }));
+app.disable("x-powered-by");
+app.set("trust proxy", config.trustProxyHops);
 
-app.get("/api/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok", activeBuilds: buildSem.count, maxConcurrentBuilds: MAX_CONCURRENT_BUILDS });
+const faucetLedger: FaucetLedger = createFaucetLedger(config);
+
+const versions = { anchor: "unknown", solana: "unknown", rust: "unknown" };
+
+async function probeVersions(): Promise<void> {
+  const [anchor, solana] = await Promise.all([
+    runFile("anchor", ["--version"], { timeoutMs: 10_000 }),
+    runFile("solana", ["--version"], { timeoutMs: 10_000 }),
+  ]);
+  if (anchor.code === 0) versions.anchor = anchor.stdout.trim();
+  if (solana.code === 0) versions.solana = solana.stdout.trim();
+  const rustc = await runFile("rustc", ["--version"], { timeoutMs: 10_000 });
+  if (rustc.code === 0) versions.rust = rustc.stdout.trim();
+}
+
+function requestId(req: Request): string {
+  const incoming = req.header("x-request-id");
+  if (incoming && /^[a-zA-Z0-9._-]{1,100}$/.test(incoming)) return incoming;
+  return randomUUID();
+}
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const id = requestId(req);
+  (req as Request & { id: string }).id = id;
+  res.setHeader("x-request-id", id);
+  const start = performance.now();
+  res.on("finish", () => {
+    log.info("request", {
+      requestId: id,
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs: Math.round(performance.now() - start),
+      ip: req.ip,
+    });
+  });
+  next();
 });
 
-app.post("/api/build", async (req: Request, res: Response) => {
-  const body = req.body as BuildRequest;
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      callback(null, config.corsOrigins.includes(origin));
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "X-Request-Id", "X-Admin-Token", "X-Confirm-Mainnet"],
+    maxAge: 600,
+  }),
+);
 
+app.use(express.json({ limit: config.bodyLimit }));
+
+app.use((err: Error & { status?: number; type?: string }, req: Request, res: Response, next: NextFunction) => {
+  if (err?.type === "entity.too.large" || err?.status === 413) {
+    return res.status(413).json({ error: "request body too large" });
+  }
+  if (err instanceof SyntaxError) {
+    return res.status(400).json({ error: "invalid JSON body" });
+  }
+  return next(err);
+});
+
+function limiter(limit: number, name: string) {
+  return rateLimit({
+    windowMs: config.rateLimits.windowMs,
+    limit,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    keyGenerator: (req) => req.ip ?? "unknown",
+    handler: (req, res) => {
+      log.warn("rate limited", { limiter: name, ip: req.ip, path: req.path });
+      res.status(429).json({
+        error: "Too many requests. Try again later.",
+        code: "RATE_LIMITED",
+      });
+    },
+  });
+}
+
+const globalLimiter = limiter(config.rateLimits.global, "global");
+const buildLimiter = limiter(config.rateLimits.build, "build");
+const deployLimiter = limiter(config.rateLimits.deploy, "deploy");
+const airdropLimiter = limiter(config.rateLimits.airdrop, "airdrop");
+const writeLimiter = limiter(config.rateLimits.write, "write");
+
+app.use("/api", globalLimiter);
+
+// Concurrency gate for non-build operations that touch RPC/CLI.
+const opSem = { count: 0, max: config.maxConcurrentOps };
+function acquireOp(): boolean {
+  if (opSem.count >= opSem.max) return false;
+  opSem.count++;
+  return true;
+}
+function releaseOp(): void {
+  opSem.count--;
+}
+
+function sendError(res: Response, status: number, message: string, code?: string): void {
+  res.status(status).json({ error: redactText(message), ...(code ? { code } : {}) });
+}
+
+// Hourly per-IP allowances on the two expensive endpoints. The short-window
+// limiter above stops bursts; this stops a single IP from living just under it.
+const ipQuota = new IpQuota(config.quotaWindowMs);
+function quotaGuard(action: "build" | "deploy", limit: number) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const decision = ipQuota.check(req.ip ?? "unknown", action, limit);
+    res.setHeader("X-RateLimit-Limit", String(decision.limit));
+    res.setHeader("X-RateLimit-Remaining", String(decision.remaining));
+    if (!decision.ok) {
+      res.setHeader("Retry-After", String(decision.retryAfterSec ?? 60));
+      log.warn("quota exceeded", { action, ip: req.ip });
+      sendError(res, 429, "Hourly quota exceeded for this IP. Try again later.", "QUOTA_EXCEEDED");
+      return;
+    }
+    next();
+  };
+}
+
+function faucetKeypair(): Keypair | null {
+  if (!config.faucet.secretHex) return null;
+  try {
+    return Keypair.fromSecretKey(Uint8Array.from(Buffer.from(config.faucet.secretHex, "hex")));
+  } catch {
+    log.error("FAUCET_SECRET_KEY is not a valid ed25519 secret key");
+    return null;
+  }
+}
+
+const faucetAddress: string =
+  config.faucet.address || faucetKeypair()?.publicKey.toBase58() || "";
+
+function parseCluster(value: unknown): Cluster | null {
+  if (value === undefined || value === null || value === "") return "devnet";
+  return isCluster(value) ? value : null;
+}
+
+async function tmpDir(prefix: string): Promise<string> {
+  return fs.mkdtemp(path.join(os.tmpdir(), `solphg-${prefix}-`));
+}
+
+async function writePrivate(file: string, data: string | Buffer): Promise<void> {
+  await fs.writeFile(file, data, { mode: 0o600 });
+}
+
+// ---------------------------------------------------------------------------
+// Health & metrics
+// ---------------------------------------------------------------------------
+
+app.get("/api/health", async (_req: Request, res: Response) => {
+  const cache = await buildService.getStats();
+  res.json({
+    status: "ok",
+    version: process.env.npm_package_version || "0.1.0",
+    uptimeSec: Math.round(process.uptime()),
+    activeBuilds: buildService.queueDepth,
+    queueDepth: buildService.queueDepth,
+    maxConcurrentBuilds: buildService.maxConcurrentBuilds,
+    cache,
+    toolchain: {
+      ...versions,
+      toolchainTag: config.toolchainTag,
+    },
+    faucet: faucetLedger.snapshot(),
+    queue: { implementation: "in-memory" },
+  });
+});
+
+app.get("/api/metrics", async (_req: Request, res: Response) => {
+  const cache = await buildService.getStats();
+  res.json({
+    ...metrics.snapshot(),
+    queueDepth: buildService.queueDepth,
+    maxConcurrentBuilds: buildService.maxConcurrentBuilds,
+    cache,
+    opsInFlight: opSem.count,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
+app.post("/api/build", buildLimiter, quotaGuard("build", config.quotas.build), async (req: Request, res: Response) => {
+  const body = req.body as BuildRequest;
+  const started = performance.now();
   try {
     const result = await runBuild(body);
+    const durationMs = result.durationMs ?? Math.round(performance.now() - started);
+    metrics.recordBuild({ durationMs, cached: Boolean(result.cached), success: result.success });
+    if (!result.success) metrics.recordError(result.code || "BUILD_FAILED");
+
     if (!result.success && result.code === "BUILD_QUEUE_FULL") {
       res.setHeader("Retry-After", String(result.retryAfterSec ?? 10));
       return res.status(429).json(result);
     }
-    const statusCode = result.success ? 200 : result.code === "INVALID_REQUEST" ? 400 : 422;
-    res.status(statusCode).json(result);
-  } catch (err: any) {
-    res.status(500).json({ success: false, error: err?.message || "internal error" });
+    const status = result.success
+      ? 200
+      : result.code === "INVALID_REQUEST"
+        ? 400
+        : result.code === "BUILD_TIMEOUT"
+          ? 504
+          : 422;
+    res.status(status).json(result);
+  } catch (err) {
+    metrics.recordError("BUILD_INTERNAL");
+    log.error("build failed", { error: (err as Error).message, requestId: (req as any).id });
+    sendError(res, 500, "internal build error", "BUILD_INTERNAL");
   }
 });
 
-function sleep(ms: number) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+// ---------------------------------------------------------------------------
+// Airdrop
+// ---------------------------------------------------------------------------
+
+function extractSignature(output: string): string | null {
+  const match = output.match(/Signature:\s*([1-9A-HJ-NP-Za-km-z]{32,})/);
+  return match ? match[1] : null;
 }
 
-const DEVNET_RPC = process.env.DEVNET_RPC_URL || "https://api.devnet.solana.com";
-const FAUCET_SECRET_HEX = process.env.FAUCET_SECRET_KEY || "";
-const HELIUS_API_KEY = process.env.HELIUS_API_KEY || "";
-
-const AIRDROP_RPCS = [
-  DEVNET_RPC,
-  "https://api.devnet.solana.com",
-  HELIUS_API_KEY ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : "",
-].filter(Boolean);
-
-function hexToKeypairFile(hex: string): number[] {
-  const buf = Buffer.from(hex, "hex");
-  if (buf.length !== 64) throw new Error(`FAUCET_SECRET_KEY must be 64 bytes (hex), got ${buf.length}`);
-  return Array.from(buf);
+async function solanaAirdrop(rpcUrl: string, address: string, sol: number): Promise<string | null> {
+  const result = await runFile(
+    "solana",
+    ["airdrop", String(sol), address, "--url", rpcUrl],
+    { timeoutMs: 20_000 },
+  );
+  if (result.code !== 0) return null;
+  return extractSignature(`${result.stdout}\n${result.stderr}`) || result.stdout.trim() || null;
 }
 
-app.post("/api/airdrop", async (req: Request, res: Response) => {
-  const { address, amount } = req.body;
-  const tmpDir = path.join("/tmp", `airdrop-${uuidv4()}`);
+async function web3Airdrop(rpcUrl: string, address: string, sol: number): Promise<string | null> {
   try {
-    await fs.mkdir(tmpDir, { recursive: true });
+    const connection = new Connection(rpcUrl, "confirmed");
+    const pubkey = new PublicKey(address);
+    const lamports = Math.round(sol * 1e9);
+    const sig = await Promise.race([
+      connection.requestAirdrop(pubkey, lamports),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 20_000)),
+    ]);
+    await Promise.race([
+      connection.confirmTransaction(sig, "confirmed"),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 20_000)),
+    ]);
+    return sig;
+  } catch {
+    return null;
+  }
+}
 
-    const faucetPath = path.join(tmpDir, "faucet.json");
-    if (FAUCET_SECRET_HEX) {
-      await fs.writeFile(faucetPath, JSON.stringify(hexToKeypairFile(FAUCET_SECRET_HEX)));
-    }
+app.post("/api/airdrop", airdropLimiter, async (req: Request, res: Response) => {
+  if (!acquireOp()) {
+    res.setHeader("Retry-After", "5");
+    return sendError(res, 429, "airdrop service busy, retry shortly", "OPS_BUSY");
+  }
+  const { address, amount, cluster } = req.body as {
+    address?: string;
+    amount?: number;
+    cluster?: string;
+  };
+  if (!isValidAddress(address)) {
+    releaseOp();
+    return sendError(res, 400, "address must be a valid Solana public key", "INVALID_ADDRESS");
+  }
+  if (cluster && cluster !== "devnet") {
+    releaseOp();
+    return sendError(res, 400, "airdrops are only available on devnet", "INVALID_CLUSTER");
+  }
+  const sol = parseSolAmount(amount ?? 2, config.faucet.maxSolPerRequest);
+  if (sol === null) {
+    releaseOp();
+    return sendError(
+      res,
+      400,
+      `amount must be greater than 0 and at most ${config.faucet.maxSolPerRequest} SOL`,
+      "INVALID_AMOUNT",
+    );
+  }
 
-    // Try faucet transfer first (bypasses requestAirdrop rate limits)
-    if (FAUCET_SECRET_HEX) {
-      try {
-        const sig = execSync(
-          `solana transfer --allow-unfunded-recipient --url ${DEVNET_RPC} --keypair ${faucetPath} ${address} ${amount || 2}`,
-          { cwd: tmpDir, timeout: 60_000, encoding: "utf8" },
-        ).toString().trim();
-        const m = sig.match(/Signature:\s*(\w+)/);
-        res.json({ signature: m ? m[1] : sig });
-        return;
-      } catch { /* fall through to airdrop */ }
-    }
+  const dir = await tmpDir("airdrop");
+  try {
+    const kp = faucetKeypair();
+    let lastError = "";
 
-    // Fallback: try requestAirdrop across multiple RPC endpoints.
-    // Total timeout of 25s max — fail fast instead of retrying forever.
-    let lastErr: any;
-    const shuffled = [...AIRDROP_RPCS].sort(() => Math.random() - 0.5);
-    const lamports = (amount || 2) * 1e9;
-    const DEADLINE = Date.now() + 25_000;
-
-    for (const rpcUrl of shuffled) {
-      if (Date.now() > DEADLINE) break;
-
-      // Approach 1: CLI solana airdrop (1 attempt per RPC, quick)
-      try {
-        const sig = execSync(
-          `solana airdrop ${amount || 2} ${address} --url ${rpcUrl}`,
-          { cwd: tmpDir, timeout: 20_000, encoding: "utf8" },
-        ).toString().trim();
-        res.json({ signature: sig });
-        return;
-      } catch (err: any) {
-        lastErr = err;
+    if (kp) {
+      const reservation = await faucetLedger.reserve(address, Math.round(sol * 1e9));
+      if (!reservation.ok) {
+        res.setHeader("Retry-After", String(reservation.retryAfterSec ?? 60));
+        return sendError(res, 429, reservation.reason || "faucet cooldown", "FAUCET_COOLDOWN");
       }
-
-      if (Date.now() > DEADLINE) break;
-
-      // Approach 2: web3.js Connection.requestAirdrop (1 attempt per RPC)
-      try {
-        const connection = new Connection(rpcUrl, "confirmed");
-        const pubkey = new PublicKey(address);
-        const sig = await connection.requestAirdrop(pubkey, lamports);
-        await connection.confirmTransaction(sig, "confirmed");
-        res.json({ signature: sig });
-        return;
-      } catch (err: any) {
-        lastErr = err;
+      const faucetPath = path.join(dir, "faucet.json");
+      await writePrivate(faucetPath, JSON.stringify(Array.from(kp.secretKey)));
+      const transfer = await runFile(
+        "solana",
+        [
+          "transfer",
+          "--allow-unfunded-recipient",
+          "--url",
+          config.devnetRpcUrl,
+          "--keypair",
+          faucetPath,
+          address,
+          String(sol),
+        ],
+        { cwd: dir, timeoutMs: 60_000 },
+      );
+      if (transfer.code === 0) {
+        const signature = extractSignature(`${transfer.stdout}\n${transfer.stderr}`) || transfer.stdout.trim();
+        return res.json({ signature, source: "faucet", amountSol: sol });
       }
+      // The faucet transfer did not happen; release the reservation.
+      await faucetLedger.refund(address, Math.round(sol * 1e9));
+      lastError = firstErrorLine(transfer.stderr, transfer.stdout);
     }
 
-    const hint = FAUCET_SECRET_HEX
-      ? "Faucet wallet is low or all RPC endpoints rate-limited. Fund the faucet at https://faucet.solana.com with address 3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR and try again."
-      : "Set FAUCET_SECRET_KEY env var with a funded devnet keypair (hex). Fund it via https://faucet.solana.com";
-    const msg = lastErr?.stderr || lastErr?.stdout || lastErr?.message || "airdrop failed";
-    res.json({ error: `${msg}. ${hint}` });
-  } catch (err: any) {
-    const msg = err.stderr || err.stdout || err.message || String(err);
-    res.json({ error: msg });
+    const rpcs = Array.from(new Set([config.devnetRpcUrl, "https://api.devnet.solana.com"])).sort(
+      () => Math.random() - 0.5,
+    );
+    const deadline = Date.now() + 25_000;
+    for (const rpcUrl of rpcs) {
+      if (Date.now() > deadline) break;
+      const cliSig = await solanaAirdrop(rpcUrl, address, sol);
+      if (cliSig) return res.json({ signature: cliSig, source: "rpc-cli", amountSol: sol });
+      if (Date.now() > deadline) break;
+      const webSig = await web3Airdrop(rpcUrl, address, sol);
+      if (webSig) return res.json({ signature: webSig, source: "rpc-web3", amountSol: sol });
+    }
+
+    const hint = faucetAddress
+      ? `Faucet wallet ${faucetAddress} is low or all RPC endpoints are rate-limited. Fund it at https://faucet.solana.com and retry.`
+      : "Set FAUCET_SECRET_KEY with a funded devnet keypair, or fund a wallet at https://faucet.solana.com.";
+    sendError(res, 503, `${lastError || "airdrop failed"}. ${hint}`, "AIRDROP_FAILED");
+  } catch (err) {
+    log.error("airdrop failed", { error: (err as Error).message, requestId: (req as any).id });
+    sendError(res, 500, "airdrop failed", "AIRDROP_INTERNAL");
   } finally {
-    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    releaseOp();
   }
 });
 
-app.post("/api/faucet-fund", async (req: Request, res: Response) => {
-  // Generates a fresh keypair, airdrops to it from Railway's IP, then
-  // auto-transfers to the faucet wallet (3Lymxu...)
-  const ip = req.ip || "unknown";
-  const cooldown = faucetCooldowns.get(ip) || 0;
-  if (Date.now() < cooldown) {
-    return res.json({ error: "Faucet fund already requested recently. Try again in 60 seconds." });
+app.post("/api/faucet-fund", writeLimiter, async (req: Request, res: Response) => {
+  if (!config.adminToken) {
+    return sendError(res, 503, "faucet bootstrap is disabled", "DISABLED");
   }
-  faucetCooldowns.set(ip, Date.now() + 60_000);
-  const tmpDir = path.join("/tmp", `faucet-fund-${uuidv4()}`);
+  if (!safeTokenEqual(req.header("x-admin-token") || "", config.adminToken)) {
+    return sendError(res, 401, "unauthorized", "UNAUTHORIZED");
+  }
+  if (!faucetAddress) {
+    return sendError(res, 400, "set FAUCET_ADDRESS or FAUCET_SECRET_KEY first", "NO_FAUCET");
+  }
+  if (!acquireOp()) {
+    res.setHeader("Retry-After", "5");
+    return sendError(res, 429, "service busy", "OPS_BUSY");
+  }
+  const dir = await tmpDir("faucet-fund");
   try {
-    await fs.mkdir(tmpDir, { recursive: true });
-    const kpPath = path.join(tmpDir, "fresh.json");
-    execSync(`solana-keygen new --no-bip39-passphrase --force --silent --outfile ${kpPath}`, { timeout: 10_000 });
-    const addr = execSync(`solana-keygen pubkey ${kpPath}`, { encoding: "utf8" }).toString().trim();
-    const rpcs = [DEVNET_RPC, "https://api.devnet.solana.com", HELIUS_API_KEY ? `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}` : ""].filter(Boolean);
+    const funded = Keypair.generate();
+    const kpPath = path.join(dir, "fresh.json");
+    await writePrivate(kpPath, JSON.stringify(Array.from(funded.secretKey)));
+    const addr = funded.publicKey.toBase58();
 
-    const fundDeadline = Date.now() + 20_000;
-    for (const rpc of [...rpcs].sort(() => Math.random() - 0.5)) {
-      if (Date.now() > fundDeadline) break;
-      try {
-        execSync(`solana airdrop 2 ${addr} --url ${rpc}`, { timeout: 15_000, encoding: "utf8" });
-        const faucetAddr = "3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR";
-        execSync(`solana transfer --allow-unfunded-recipient --url ${rpc} --keypair ${kpPath} ${faucetAddr} 2`, { timeout: 15_000, encoding: "utf8" });
-        const bal = execSync(`solana balance ${faucetAddr} --url ${rpc}`, { encoding: "utf8" }).toString().trim();
-        res.json({ success: true, faucetAddress: faucetAddr, faucetBalance: bal, message: "Faucet wallet funded! Airdrop should work now." });
-        return;
-      } catch (e: any) {
-        console.warn(`faucet-fund RPC ${rpc} failed:`, e.stderr || e.message);
-      }
+    const rpcs = Array.from(new Set([config.devnetRpcUrl, "https://api.devnet.solana.com"])).sort(
+      () => Math.random() - 0.5,
+    );
+    for (const rpc of rpcs) {
+      const sig = await solanaAirdrop(rpc, addr, 2);
+      if (!sig) continue;
+      const transfer = await runFile(
+        "solana",
+        [
+          "transfer",
+          "--allow-unfunded-recipient",
+          "--url",
+          rpc,
+          "--keypair",
+          kpPath,
+          faucetAddress,
+          "1.9",
+        ],
+        { cwd: dir, timeoutMs: 30_000 },
+      );
+      if (transfer.code !== 0) continue;
+      const balance = await runFile("solana", ["balance", faucetAddress, "--url", rpc], {
+        timeoutMs: 10_000,
+      });
+      return res.json({
+        success: true,
+        faucetAddress,
+        faucetBalance: balance.stdout.trim(),
+        message: "Faucet wallet funded.",
+      });
     }
-    res.json({ error: "All RPC endpoints rate-limited. Try again later." });
-  } catch (err: any) {
-    res.json({ error: err.message || String(err) });
+    sendError(res, 503, "all RPC endpoints rate-limited; try again later", "FAUCET_FUND_FAILED");
+  } catch (err) {
+    log.error("faucet bootstrap failed", { error: (err as Error).message });
+    sendError(res, 500, "faucet bootstrap failed", "FAUCET_FUND_INTERNAL");
   } finally {
-    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    releaseOp();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Balance
+// ---------------------------------------------------------------------------
 
 app.get("/api/balance/:address", async (req: Request, res: Response) => {
-  const cluster = (req.query.cluster as string) || "devnet";
-  const rpcUrl = resolveRpc(cluster);
-  const tmpDir = path.join("/tmp", `balance-${uuidv4()}`);
+  const address = req.params.address;
+  if (!isValidAddress(address)) return sendError(res, 400, "invalid address", "INVALID_ADDRESS");
+  const cluster = parseCluster(req.query.cluster);
+  if (!cluster) return sendError(res, 400, "unknown cluster", "INVALID_CLUSTER");
+  const rpcUrl = resolveRpc(cluster, config);
+
+  const cli = await runFile("solana", ["balance", address, "--url", rpcUrl], { timeoutMs: 10_000 });
+  if (cli.code === 0) {
+    const num = parseFloat(cli.stdout.replace(" SOL", "").trim());
+    return res.json({ balance: Number.isFinite(num) ? num : 0, cluster });
+  }
   try {
-    await fs.mkdir(tmpDir, { recursive: true });
-    const balance = execSync(
-      `solana balance ${req.params.address} --url ${rpcUrl}`,
-      { cwd: tmpDir, timeout: 10_000, encoding: "utf8" },
-    ).toString().trim();
-    const num = parseFloat(balance.replace(" SOL", ""));
-    res.json({ balance: isNaN(num) ? 0 : num });
-  } catch (err: any) {
-    try {
-      const connection = new Connection(rpcUrl, "confirmed");
-      const pubkey = new PublicKey(req.params.address);
-      const lamports = await connection.getBalance(pubkey);
-      res.json({ balance: lamports / 1e9 });
-    } catch {
-      const msg = err.stderr || err.stdout || err.message || String(err);
-      res.json({ error: msg });
-    }
-  } finally {
-    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    const connection = new Connection(rpcUrl, "confirmed");
+    const lamports = await connection.getBalance(new PublicKey(address));
+    return res.json({ balance: lamports / 1e9, cluster });
+  } catch {
+    return sendError(res, 502, firstErrorLine(cli.stderr, cli.stdout), "BALANCE_FAILED");
   }
 });
 
-app.post("/api/simulate", async (req: Request, res: Response) => {
-  const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body;
-  const cluster = (req.body.cluster as string) || "devnet";
-  const rpcUrl = resolveRpc(cluster);
-  const tmpDir = path.join("/tmp", `simulate-${uuidv4()}`);
+// ---------------------------------------------------------------------------
+// Simulate (no key material written to disk)
+// ---------------------------------------------------------------------------
+
+function parseSecret(value: unknown): Keypair | null {
+  if (!isValidSecretHex(value)) return null;
   try {
-    await fs.mkdir(tmpDir, { recursive: true });
+    return Keypair.fromSecretKey(Uint8Array.from(Buffer.from(value, "hex")));
+  } catch {
+    return null;
+  }
+}
 
-    const authorityPath = path.join(tmpDir, "authority.json");
-    const programPath = path.join(tmpDir, "program.so");
-    const programKpPath = path.join(tmpDir, "program-kp.json");
+function parseProgramKeypair(value: unknown): Keypair | null {
+  const buf = decodeBase64Bounded(value, 128);
+  if (!buf || buf.length !== 64) return null;
+  try {
+    return Keypair.fromSecretKey(Uint8Array.from(buf));
+  } catch {
+    return null;
+  }
+}
 
-    if (!authoritySecretKey || typeof authoritySecretKey !== "string") {
-      return res.json({ error: "authoritySecretKey is required" });
+app.post("/api/simulate", writeLimiter, async (req: Request, res: Response) => {
+  if (!acquireOp()) {
+    res.setHeader("Retry-After", "5");
+    return sendError(res, 429, "service busy", "OPS_BUSY");
+  }
+  try {
+    const { bytecodeBase64, programKeypair, authoritySecretKey } = req.body as Record<string, unknown>;
+    const authority = parseSecret(authoritySecretKey);
+    if (!authority) {
+      return sendError(res, 400, "authoritySecretKey must be 64 bytes of hex", "INVALID_SECRET");
     }
-    const authorityBytes = Buffer.from(authoritySecretKey, "hex");
-    if (authorityBytes.length !== 64) {
-      return res.json({ error: `authoritySecretKey must be 64 bytes` });
+    if (programKeypair !== undefined && programKeypair !== null && !parseProgramKeypair(programKeypair)) {
+      return sendError(res, 400, "programKeypair must be base64-encoded 64-byte keypair", "INVALID_KEYPAIR");
     }
-    await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
+    const soBytes = decodeBase64Bounded(bytecodeBase64, MAX_SO_BYTES);
+    if (!soBytes) return sendError(res, 400, "bytecodeBase64 is missing or too large", "INVALID_BYTECODE");
 
-    if (!bytecodeBase64 || typeof bytecodeBase64 !== "string") {
-      return res.json({ error: "bytecodeBase64 is required and must be a string" });
-    }
-    let soBytes: Buffer;
-    try { soBytes = Buffer.from(bytecodeBase64, "base64"); } catch {
-      return res.json({ error: "bytecodeBase64 is not valid base64" });
-    }
-    await fs.writeFile(programPath, soBytes);
+    const cluster = parseCluster(req.body.cluster);
+    if (!cluster) return sendError(res, 400, "unknown cluster", "INVALID_CLUSTER");
+    const rpcUrl = resolveRpc(cluster, config);
+    const connection = new Connection(rpcUrl, "confirmed");
 
-    if (programKeypair) {
-      const kpBytes = Buffer.from(programKeypair, "base64");
-      await fs.writeFile(programKpPath, JSON.stringify(Array.from(kpBytes)));
-    }
-
-    // Check authority balance first
     let balance = 0;
     try {
-      const balOut = execSync(`solana balance ${authorityPath} --url ${rpcUrl}`, { timeout: 10_000, encoding: "utf8" });
-      balance = parseFloat(balOut.toString().trim().replace(" SOL", "")) || 0;
-    } catch {}
+      balance = (await connection.getBalance(authority.publicKey)) / 1e9;
+    } catch {
+      /* treated as zero */
+    }
 
-    // Estimate deploy cost from bytecode size
-    // Program account rent ≈ (4 + 32 + 32 + 32 + 4 + bytecode) bytes
-    // Rounded to nearest 1KB for estimation
-    const bytecodeSize = soBytes.length;
-    const programAccountBytes = 100 + bytecodeSize; // ~100 bytes overhead
-    const rentExemptionPerKb = 0.0035; // ~0.0035 SOL per KB rent-exempt
-    const estimatedRent = Math.ceil(programAccountBytes / 1024) * rentExemptionPerKb;
-
-    // Check if the expected program ID already exists on chain
-    let existingProgramId: string | null = null;
+    const programId = programKeypair ? parseProgramKeypair(programKeypair)!.publicKey.toBase58() : null;
     let programExists = false;
-    if (programKeypair) {
+    if (programId) {
       try {
-        const pkOut = execSync(
-          `solana-keygen pubkey ${programKpPath}`,
-          { timeout: 5_000, encoding: "utf8" },
-        ).toString().trim();
-        existingProgramId = pkOut;
-        // Try fetching the program account
-        execSync(
-          `solana program show ${pkOut} --url ${rpcUrl} 2>&1`,
-          { timeout: 10_000, encoding: "utf8" },
-        );
-        programExists = true;
+        const info = await connection.getAccountInfo(new PublicKey(programId));
+        programExists = Boolean(info);
       } catch {
-        // Program doesn't exist yet — good
+        /* not found */
       }
     }
 
-    // Check if authority has enough for tx fee
-    const txFee = 0.00001; // ~0.00001 SOL per signature
+    const bytecodeSize = soBytes.length;
+    const programAccountBytes = 100 + bytecodeSize;
+    const estimatedRent = Math.ceil(programAccountBytes / 1024) * 0.0035;
+    const txFee = 0.00001;
     const totalCost = estimatedRent + txFee;
 
     res.json({
       success: true,
-      programId: existingProgramId,
+      cluster,
+      programId,
       bytecodeSize,
       estimatedRentSol: Math.round(estimatedRent * 1e6) / 1e6,
       authorityBalance: balance,
@@ -332,282 +556,297 @@ app.post("/api/simulate", async (req: Request, res: Response) => {
       programExists,
       output: [
         `Bytecode size: ${(bytecodeSize / 1024).toFixed(1)} KB`,
-        `Est. rent-exempt balance: ${(Math.round(estimatedRent * 1e6) / 1e6).toFixed(4)} SOL`,
+        `Est. rent-exempt balance: ${estimatedRent.toFixed(6)} SOL`,
         `Authority balance: ${balance.toFixed(4)} SOL`,
-        programExists ? `⚠ Program ID already exists — will upgrade` : `✓ Program ID is available`,
-        balance >= totalCost ? `✓ Sufficient balance` : `⚠ Need ~${totalCost.toFixed(4)} SOL for deploy`,
-      ].join('\n'),
+        programExists ? "⚠ Program ID already exists — will upgrade" : "✓ Program ID is available",
+        balance >= totalCost ? "✓ Sufficient balance" : `⚠ Need ~${totalCost.toFixed(6)} SOL for deploy`,
+      ].join("\n"),
     });
-  } catch (err: any) {
-    const msg = err.stderr || err.stdout || err.message || String(err);
-    res.json({ error: msg });
+  } catch (err) {
+    log.error("simulate failed", { error: (err as Error).message });
+    sendError(res, 500, "simulation failed", "SIMULATE_INTERNAL");
   } finally {
-    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    releaseOp();
   }
 });
 
-app.post("/api/debug-cpi", async (req: Request, res: Response) => {
-  // Two modes:
-  // 1) { rawLogs: string } — parse provided logs into CPI tree
-  // 2) { bytecodeBase64, idl } — attempt local validator trace
-  const { bytecodeBase64, rawLogs: inputLogs } = req.body;
+// ---------------------------------------------------------------------------
+// Local validator helpers (disabled unless ENABLE_LOCAL_VALIDATOR=true)
+// ---------------------------------------------------------------------------
 
-  // Mode 1: Parse provided logs
-  if (inputLogs) {
+interface ValidatorHandle {
+  child: ChildProcess;
+  rpcUrl: string;
+}
+
+async function startLocalValidator(ledgerDir: string): Promise<ValidatorHandle | null> {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const rpcPort = 20_000 + Math.floor(Math.random() * 20_000);
+    const rpcUrl = `http://127.0.0.1:${rpcPort}`;
+    const child = spawn(
+      "solana-test-validator",
+      [
+        "--reset",
+        "--quiet",
+        "--ledger",
+        ledgerDir,
+        "--rpc-port",
+        String(rpcPort),
+        "--faucet-port",
+        "0",
+        "--no-bpf-jit",
+      ],
+      { stdio: "ignore", detached: process.platform !== "win32", windowsHide: true },
+    );
+    for (let i = 0; i < 12; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const probe = await runFile("solana", ["cluster-version", "--url", rpcUrl], { timeoutMs: 3_000 });
+      if (probe.code === 0) return { child, rpcUrl };
+      if (child.exitCode !== null) break;
+    }
+    killProcessTree(child.pid ?? 0);
+  }
+  return null;
+}
+
+function stopValidator(handle: ValidatorHandle | null): void {
+  if (handle?.child.pid) killProcessTree(handle.child.pid);
+}
+
+// ---------------------------------------------------------------------------
+// CPI debug
+// ---------------------------------------------------------------------------
+
+app.post("/api/debug-cpi", writeLimiter, async (req: Request, res: Response) => {
+  const { bytecodeBase64, rawLogs: inputLogs } = req.body as Record<string, unknown>;
+
+  if (typeof inputLogs === "string" && inputLogs.length > 0) {
+    if (inputLogs.length > MAX_LOGS_CHARS) {
+      return sendError(res, 400, `rawLogs must be at most ${MAX_LOGS_CHARS} characters`, "LOGS_TOO_LARGE");
+    }
     const parsedTree = parseCpiLogs(inputLogs);
-    const isAllSuccessful = (nodes: CpiNode[]): boolean => nodes.every(n => n.success && isAllSuccessful(n.children));
-    const allSuccess = parsedTree.length === 0 || isAllSuccessful(parsedTree);
+    const allSuccess = parsedTree.length === 0 || parsedTree.every((n) => n.success);
     return res.json({
       success: allSuccess,
       cpiTree: parsedTree,
       rawLogs: inputLogs.slice(0, 5000),
-      summary: {
-        totalCpis: parsedTree.length,
-        computeUnits: "varies (depends on transaction)",
-      },
+      summary: { totalCpis: parsedTree.length, computeUnits: "varies (depends on transaction)" },
     });
   }
 
-  // Mode 2: Try local validator (if available)
-  if (!bytecodeBase64) {
-    return res.json({ error: "Provide bytecodeBase64 for auto-trace or rawLogs for log parsing" });
+  if (!config.enableLocalValidator) {
+    return res.json({
+      success: true,
+      programId: null,
+      cpiTree: [],
+      rawLogs:
+        "Automatic CPI tracing is disabled on this deployment. Use the 'Paste Raw Logs' feature with output from `solana simulate`.",
+      summary: { totalCpis: 0, computeUnits: "N/A" },
+      note: "ENABLE_LOCAL_VALIDATOR is false.",
+    });
   }
 
-  const tmpDir = path.join("/tmp", `cpi-${uuidv4()}`);
+  const soBytes = decodeBase64Bounded(bytecodeBase64, MAX_SO_BYTES);
+  if (!soBytes) return sendError(res, 400, "invalid bytecodeBase64", "INVALID_BYTECODE");
 
+  const dir = await tmpDir("cpi");
+  const ledger = await tmpDir("cpi-ledger");
+  let validator: ValidatorHandle | null = null;
   try {
-    await fs.mkdir(tmpDir, { recursive: true });
+    const programPath = path.join(dir, "program.so");
+    const programKpPath = path.join(dir, "program-kp.json");
+    await writePrivate(programPath, soBytes);
+    const programKp = Keypair.generate();
+    await writePrivate(programKpPath, JSON.stringify(Array.from(programKp.secretKey)));
+    const programId = programKp.publicKey.toBase58();
 
-    const programPath = path.join(tmpDir, "program.so");
-    const programKpPath = path.join(tmpDir, "program-kp.json");
-    const soBytes = Buffer.from(bytecodeBase64, "base64");
-    await fs.writeFile(programPath, soBytes);
-
-    execSync(
-      `solana-keygen new --no-bip39-passphrase --force --silent --outfile ${programKpPath}`,
-      { timeout: 10_000 }
-    );
-    const programId = execSync(
-      `solana-keygen pubkey ${programKpPath}`,
-      { encoding: "utf8", timeout: 5_000 }
-    ).toString().trim();
-
-    // Attempt to run full trace on a local validator
-    let validator: any = null;
-    let ready = false;
-    let rpcPort = 8899;
-    const ledgerDir = path.join("/tmp", `cpi-ledger-${uuidv4()}`);
-    const killValidator = () => { try { if (validator) { process.kill(-validator.pid); } } catch {} };
-
-    const { spawn } = require("child_process");
-    for (let attempt = 0; attempt < 5 && !ready; attempt++) {
-      rpcPort = 8899 + Math.floor(Math.random() * 1000);
-      try {
-        validator = spawn("solana-test-validator", [
-          "--reset", "--quiet", `--ledger`, ledgerDir,
-          `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
-        ], { stdio: "ignore", detached: true });
-
-        for (let i = 0; i < 5; i++) {
-          await sleep(500);
-          try {
-            execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
-            ready = true;
-            break;
-          } catch {}
-        }
-        if (!ready) killValidator();
-      } catch { if (validator) killValidator() }
-    }
-
-    if (!ready) {
-      killValidator();
+    validator = await startLocalValidator(ledger);
+    if (!validator) {
       return res.json({
         success: true,
         programId,
         cpiTree: [],
-        rawLogs: "solana-test-validator not available in this environment. Use the 'Paste Raw Logs' feature in the CPI Debug tab — run `solana simulate` in your terminal and paste the output here.",
+        rawLogs: "solana-test-validator is not available in this environment.",
         summary: { totalCpis: 0, computeUnits: "N/A" },
-        note: "Local validator not found. Paste raw simulation logs to analyze CPI traces.",
       });
     }
-
-    try {
-      execSync(
-        `solana program deploy ${programPath} --program-id ${programKpPath} --url http://127.0.0.1:${rpcPort} 2>&1`,
-        { timeout: 60_000, cwd: tmpDir, encoding: "utf8" }
-      );
-    } catch (deployErr: any) {
-      killValidator();
-      throw new Error(`deploy to local validator failed: ${deployErr.stderr || deployErr.message}`);
+    const deploy = await runFile(
+      "solana",
+      ["program", "deploy", programPath, "--program-id", programKpPath, "--url", validator.rpcUrl],
+      { cwd: dir, timeoutMs: 60_000 },
+    );
+    if (deploy.code !== 0) {
+      throw new Error(`deploy to local validator failed: ${firstErrorLine(deploy.stderr, deploy.stdout)}`);
     }
-
-    // Simulate a transaction against the deployed program
-    let simOutput = "";
-    try {
-      simOutput = execSync(
-        `solana transfer --allow-unfunded-recipient --url http://127.0.0.1:${rpcPort} ${programId} 0.0001 2>&1`,
-        { timeout: 30_000, encoding: "utf8" }
-      ).toString();
-    } catch (err: any) {
-      simOutput = err.stdout || err.stderr || err.message || "";
-    }
-
-    const parsedTree = parseCpiLogs(simOutput);
-    const isAllSuccessful = (nodes: CpiNode[]): boolean => nodes.every(n => n.success && isAllSuccessful(n.children));
-
-    killValidator();
-
+    const sim = await runFile(
+      "solana",
+      ["transfer", "--allow-unfunded-recipient", "--url", validator.rpcUrl, programId, "0.0001"],
+      { timeoutMs: 30_000 },
+    );
+    const logText = `${sim.stdout}\n${sim.stderr}`;
+    const parsedTree: CpiNode[] = parseCpiLogs(logText);
     res.json({
-      success: parsedTree.length === 0 || isAllSuccessful(parsedTree),
+      success: parsedTree.every((n) => n.success),
       programId,
       cpiTree: parsedTree,
-      rawLogs: simOutput.slice(0, 5000),
-      summary: {
-        totalCpis: parsedTree.length,
-        computeUnits: "N/A (local validator)",
-      },
+      rawLogs: logText.slice(0, 5000),
+      summary: { totalCpis: parsedTree.length, computeUnits: "N/A (local validator)" },
     });
-  } catch (err: any) {
-    const msg = err.stderr || err.stdout || err.message || String(err);
-    res.json({ error: msg, rawLogs: msg });
+  } catch (err) {
+    log.error("cpi trace failed", { error: (err as Error).message });
+    sendError(res, 500, "CPI trace failed", "CPI_FAILED");
   } finally {
-    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    stopValidator(validator);
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(ledger, { recursive: true, force: true }).catch(() => {});
   }
 });
 
-app.post("/api/deploy", async (req: Request, res: Response) => {
-  const { bytecodeBase64, programKeypair, authoritySecretKey, dryRun } = req.body;
-  const cluster = (req.body.cluster as string) || "devnet";
-  const rpcUrl = resolveRpc(cluster);
-  const tmpDir = path.join("/tmp", `deploy-${uuidv4()}`);
+// ---------------------------------------------------------------------------
+// Deploy
+// ---------------------------------------------------------------------------
+
+app.post("/api/deploy", deployLimiter, quotaGuard("deploy", config.quotas.deploy), async (req: Request, res: Response) => {
+  const { bytecodeBase64, programKeypair, authoritySecretKey, confirmMainnet } = req.body as Record<
+    string,
+    unknown
+  >;
+  const cluster = parseCluster(req.body.cluster);
+  if (!cluster) return sendError(res, 400, "unknown cluster", "INVALID_CLUSTER");
+
+  if (cluster === "mainnet-beta") {
+    if (confirmMainnet !== true) {
+      return sendError(
+        res,
+        400,
+        "mainnet deployment requires confirmMainnet=true after reviewing cost and authority",
+        "MAINNET_CONFIRMATION_REQUIRED",
+      );
+    }
+  }
+
+  if (!acquireOp()) {
+    res.setHeader("Retry-After", "5");
+    return sendError(res, 429, "deploy service busy", "OPS_BUSY");
+  }
+
+  const dir = await tmpDir("deploy");
   try {
-    await fs.mkdir(tmpDir, { recursive: true });
-
-    const authorityPath = path.join(tmpDir, "authority.json");
-    const programPath = path.join(tmpDir, "program.so");
-    const programKpPath = path.join(tmpDir, "program-kp.json");
-
-    // Validate and write authority keypair
-    if (!authoritySecretKey || typeof authoritySecretKey !== "string") {
-      return res.json({ error: "authoritySecretKey is required" });
+    const authority = parseSecret(authoritySecretKey);
+    if (!authority) {
+      return sendError(
+        res,
+        400,
+        "authoritySecretKey must be 64 bytes of hex. Browser wallets cannot sign deployments — generate or import a wallet.",
+        "INVALID_SECRET",
+      );
     }
-    const authorityBytes = Buffer.from(authoritySecretKey, "hex");
-    if (authorityBytes.length !== 64) {
-      return res.json({ error: `authoritySecretKey must be 64 bytes, got ${authorityBytes.length}. Browser wallets (Backpack/Phantom) cannot sign deployments — generate or import a wallet.` });
-    }
-    await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
+    const soBytes = decodeBase64Bounded(bytecodeBase64, MAX_SO_BYTES);
+    if (!soBytes) return sendError(res, 400, "invalid bytecodeBase64", "INVALID_BYTECODE");
 
-    // Write program binary
-    const soBytes = Buffer.from(bytecodeBase64, "base64");
-    await fs.writeFile(programPath, soBytes);
-
-    // Write program keypair for deterministic address
-    if (programKeypair) {
-      const kpBytes = Buffer.from(programKeypair, "base64");
-      await fs.writeFile(programKpPath, JSON.stringify(Array.from(kpBytes)));
+    const programKp = programKeypair !== undefined && programKeypair !== null
+      ? parseProgramKeypair(programKeypair)
+      : null;
+    if (programKeypair !== undefined && programKeypair !== null && !programKp) {
+      return sendError(res, 400, "invalid programKeypair", "INVALID_KEYPAIR");
     }
 
-    execSync(
-      `solana config set --url ${rpcUrl} --keypair ${authorityPath} 2>&1`,
-      { cwd: tmpDir, timeout: 10_000 },
-    );
+    const authorityPath = path.join(dir, "authority.json");
+    const programPath = path.join(dir, "program.so");
+    const programKpPath = path.join(dir, "program-kp.json");
+    await writePrivate(authorityPath, JSON.stringify(Array.from(authority.secretKey)));
+    await writePrivate(programPath, soBytes);
+    if (programKp) await writePrivate(programKpPath, JSON.stringify(Array.from(programKp.secretKey)));
 
-    if (dryRun) {
-      const programId = programKeypair
-        ? execSync(`solana-keygen pubkey ${programKpPath}`, { encoding: "utf8", timeout: 5_000 }).toString().trim()
-        : undefined
-      return res.json({
-        dryRun: true,
-        programId,
-        bytecodeSize: soBytes.length,
-        cluster,
-        rpcUrl,
-        message: "Dry run passed. Set dryRun=false to actually deploy.",
-      })
+    const rpcUrl = resolveRpc(cluster, config);
+    const args = [
+      "program",
+      "deploy",
+      programPath,
+      "--keypair",
+      authorityPath,
+      "--url",
+      rpcUrl,
+    ];
+    if (programKp) args.push("--program-id", programKpPath);
+
+    const result = await runFile("solana", args, { cwd: dir, timeoutMs: 180_000 });
+    if (result.code !== 0) {
+      metrics.recordError("DEPLOY_FAILED");
+      return sendError(res, 502, firstErrorLine(result.stderr, result.stdout), "DEPLOY_FAILED");
     }
 
-    const deployCmd = programKeypair
-      ? `solana program deploy ${programPath} --program-id ${programKpPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`
-      : `solana program deploy ${programPath} --keypair ${authorityPath} --url ${rpcUrl} 2>&1`;
-
-    const output = execSync(deployCmd, { cwd: tmpDir, timeout: 120_000, encoding: "utf8" }).toString().trim();
-
-    // Extract program ID from output: "Program Id: <address>"
-    const progIdMatch = output.match(/Program Id:\s*(\w+)/);
-    const programId = progIdMatch ? progIdMatch[1] : undefined;
-
-    res.json({ signature: output, programId });
-  } catch (err: any) {
-    const msg = err.stderr || err.stdout || err.message || String(err);
-    res.json({ error: msg });
+    const output = `${result.stdout}\n${result.stderr}`;
+    const progIdMatch = output.match(/Program Id:\s*([1-9A-HJ-NP-Za-km-z]{32,44})/);
+    const programId = progIdMatch?.[1] ?? programKp?.publicKey.toBase58();
+    res.json({
+      signature: extractSignature(output) || result.stdout.trim(),
+      programId,
+      cluster,
+      authority: authority.publicKey.toBase58(),
+      bytecodeSize: soBytes.length,
+    });
+  } catch (err) {
+    log.error("deploy failed", { error: (err as Error).message });
+    sendError(res, 500, "deploy failed", "DEPLOY_INTERNAL");
   } finally {
-    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    releaseOp();
   }
 });
 
-app.post("/api/profile", async (req: Request, res: Response) => {
-  const { bytecodeBase64, programKeypair, authoritySecretKey, instructionData } = req.body;
-  const tmpDir = path.join("/tmp", `profile-${uuidv4()}`);
+// ---------------------------------------------------------------------------
+// CU profiler (disabled unless ENABLE_LOCAL_VALIDATOR=true)
+// ---------------------------------------------------------------------------
 
-  let ledgerDir = "";
+app.post("/api/profile", writeLimiter, async (req: Request, res: Response) => {
+  if (!config.enableLocalValidator) {
+    return res.json({
+      success: false,
+      totalCuConsumed: 0,
+      cuCap: 1_400_000,
+      programId: null,
+      instructions: [],
+      error: null,
+      logs: [],
+      note: "Automatic CU profiling is disabled. Set ENABLE_LOCAL_VALIDATOR=true or paste simulation logs in CPI Debug.",
+    });
+  }
+  const { bytecodeBase64, programKeypair, authoritySecretKey, instructionData } = req.body as Record<
+    string,
+    unknown
+  >;
+  const authority = parseSecret(authoritySecretKey);
+  if (!authority) return sendError(res, 400, "authoritySecretKey must be 64 bytes of hex", "INVALID_SECRET");
+  const soBytes = decodeBase64Bounded(bytecodeBase64, MAX_SO_BYTES);
+  if (!soBytes) return sendError(res, 400, "invalid bytecodeBase64", "INVALID_BYTECODE");
+  let instructionBytes: Buffer = Buffer.alloc(0);
+  if (instructionData) {
+    const decoded = decodeBase64Bounded(instructionData, MAX_IDL_BYTES);
+    if (!decoded) {
+      return sendError(res, 400, "invalid instructionData", "INVALID_INSTRUCTION");
+    }
+    instructionBytes = decoded;
+  }
+
+  if (!acquireOp()) {
+    res.setHeader("Retry-After", "5");
+    return sendError(res, 429, "service busy", "OPS_BUSY");
+  }
+  const dir = await tmpDir("profile");
+  const ledger = await tmpDir("profile-ledger");
+  let validator: ValidatorHandle | null = null;
   try {
-    await fs.mkdir(tmpDir, { recursive: true });
+    const programPath = path.join(dir, "program.so");
+    const programKpPath = path.join(dir, "program-kp.json");
+    await writePrivate(programPath, soBytes);
+    const programKp = programKeypair ? parseProgramKeypair(programKeypair) : Keypair.generate();
+    if (!programKp) return sendError(res, 400, "invalid programKeypair", "INVALID_KEYPAIR");
+    await writePrivate(programKpPath, JSON.stringify(Array.from(programKp.secretKey)));
+    const programId = programKp.publicKey.toBase58();
 
-    const programPath = path.join(tmpDir, "program.so");
-    const programKpPath = path.join(tmpDir, "program-kp.json");
-    const authorityPath = path.join(tmpDir, "authority.json");
-
-    const soBytes = Buffer.from(bytecodeBase64, "base64");
-    await fs.writeFile(programPath, soBytes);
-
-    if (!authoritySecretKey || typeof authoritySecretKey !== "string") {
-      return res.json({ error: "authoritySecretKey is required" });
-    }
-    const authorityBytes = Buffer.from(authoritySecretKey, "hex");
-    if (authorityBytes.length !== 64) {
-      return res.json({ error: "authoritySecretKey must be 64 bytes (hex)" });
-    }
-    await fs.writeFile(authorityPath, JSON.stringify(Array.from(authorityBytes)));
-
-    if (programKeypair) {
-      const kpBytes = Buffer.from(programKeypair, "base64");
-      await fs.writeFile(programKpPath, JSON.stringify(Array.from(kpBytes)));
-    } else {
-      execSync(`solana-keygen new --no-bip39-passphrase --force --silent --outfile ${programKpPath}`, { timeout: 10_000 });
-    }
-
-    const programId = execSync(`solana-keygen pubkey ${programKpPath}`, { encoding: "utf8", timeout: 5_000 }).toString().trim();
-
-    // Phase 1: Start local validator
-    let validator: any = null;
-    let ready = false;
-    let rpcPort = 8899;
-    ledgerDir = path.join("/tmp", `profile-ledger-${uuidv4()}`);
-    const killValidator = () => { try { if (validator) { process.kill(-validator.pid); } } catch {} };
-
-    const { spawn } = require("child_process");
-    for (let attempt = 0; attempt < 5 && !ready; attempt++) {
-      rpcPort = 8899 + Math.floor(Math.random() * 1000);
-      try {
-        validator = spawn("solana-test-validator", [
-          "--reset", "--quiet", `--ledger`, ledgerDir,
-          `--rpc-port`, String(rpcPort), "--gossip-port", "0", "--faucet-port", "0", "--no-bpf-jit",
-        ], { stdio: "ignore", detached: true });
-
-        for (let i = 0; i < 6; i++) {
-          await sleep(800);
-          try {
-            execSync(`solana --url http://127.0.0.1:${rpcPort} cluster-version 2>&1`, { timeout: 3_000 });
-            ready = true;
-            break;
-          } catch {}
-        }
-        if (!ready) killValidator();
-      } catch { if (validator) killValidator() }
-    }
-    if (!ready) {
-      killValidator();
+    validator = await startLocalValidator(ledger);
+    if (!validator) {
       return res.json({
         success: false,
         totalCuConsumed: 0,
@@ -616,89 +855,110 @@ app.post("/api/profile", async (req: Request, res: Response) => {
         instructions: [],
         error: null,
         logs: [],
-        note: "Automatic CU profiling requires solana-test-validator which is not available in this environment. Build and deploy your program, then run `solana simulate` locally and paste the output into the CPI Debug tab (Paste Raw Logs mode) to analyze CU consumption.",
+        note: "solana-test-validator is not available in this environment.",
       });
     }
-
-    // Phase 1: Deploy program to local validator
-    try {
-      execSync(
-        `solana program deploy ${programPath} --program-id ${programKpPath} --url http://127.0.0.1:${rpcPort} 2>&1`,
-        { timeout: 60_000, cwd: tmpDir, encoding: "utf8" }
-      );
-    } catch (deployErr: any) {
-      killValidator();
-      return res.json({ error: `deploy to local validator failed: ${deployErr.stderr || deployErr.message}` });
+    const deploy = await runFile(
+      "solana",
+      ["program", "deploy", programPath, "--program-id", programKpPath, "--url", validator.rpcUrl],
+      { cwd: dir, timeoutMs: 60_000 },
+    );
+    if (deploy.code !== 0) {
+      return sendError(res, 502, firstErrorLine(deploy.stderr, deploy.stdout), "DEPLOY_FAILED");
     }
 
-    // Phase 1-2: Construct and simulate transaction
-    let totalCuConsumed = 0;
-    let cuTree: any[] = [];
-    let simLogs: string[] = [];
-    let simError: string | null = null;
-
-    try {
-      const { Connection, PublicKey, Transaction, TransactionInstruction, Keypair } = require("@solana/web3.js");
-      const connection = new Connection(`http://127.0.0.1:${rpcPort}`, "processed");
-      const feePayer = Keypair.fromSecretKey(new Uint8Array(authorityBytes));
-      const programPubkey = new PublicKey(programId);
-
-      const ix = new TransactionInstruction({
-        keys: [{ pubkey: feePayer.publicKey, isSigner: true, isWritable: true }],
-        programId: programPubkey,
-        data: instructionData ? Buffer.from(instructionData, "base64") : Buffer.alloc(0),
-      });
-
-      const tx = new Transaction();
-      tx.add(ix);
-      tx.feePayer = feePayer.publicKey;
-      const blockhash = await connection.getLatestBlockhash();
-      tx.recentBlockhash = blockhash.blockhash;
-
-      const simResult = await connection.simulateTransaction(tx, [feePayer], {
-        innerInstructions: true,
-        sigVerify: false,
-        commitment: "processed",
-      });
-
-      const sv = simResult.value;
-      simLogs = sv.logs || [];
-
-      if (sv.err) {
-        simError = typeof sv.err === "string" ? sv.err : JSON.stringify(sv.err);
-      }
-
-      // Parse CU from logs
-      const parsed = parseCpuProfileLogs(simLogs);
-      totalCuConsumed = sv.unitsConsumed || parsed.totalCu || 0;
-      cuTree = parsed.tree;
-    } catch (simErr: any) {
-      killValidator();
-      return res.json({ error: `simulation failed: ${simErr.message}` });
-    }
-
-    killValidator();
-
-    // Phase 2+5: Build enhanced response with hotspots
+    const connection = new Connection(validator.rpcUrl, "processed");
+    const ix = new TransactionInstruction({
+      keys: [{ pubkey: authority.publicKey, isSigner: true, isWritable: true }],
+      programId: new PublicKey(programId),
+      data: instructionBytes,
+    });
+    const tx = new Transaction().add(ix);
+    tx.feePayer = authority.publicKey;
+    const blockhash = await connection.getLatestBlockhash();
+    tx.recentBlockhash = blockhash.blockhash;
+    const sim = await connection.simulateTransaction(tx, [authority]);
+    const simLogs = sim.value.logs ?? [];
+    const parsed = parseCpuProfileLogs(simLogs);
+    const totalCuConsumed = sim.value.unitsConsumed ?? parsed.totalCu;
     res.json({
-      success: !simError,
+      success: !sim.value.err,
       totalCuConsumed,
       cuCap: 1_400_000,
       cuUtilization: Math.round((totalCuConsumed / 1_400_000) * 10000) / 100,
       programId,
-      instructions: cuTree,
-      error: simError,
+      instructions: parsed.tree,
+      error: sim.value.err ? JSON.stringify(sim.value.err) : null,
       logs: simLogs.slice(0, 200),
     });
-  } catch (err: any) {
-    const msg = err.stderr || err.stdout || err.message || String(err);
-    res.json({ error: msg });
+  } catch (err) {
+    log.error("profile failed", { error: (err as Error).message });
+    sendError(res, 500, "profile failed", "PROFILE_INTERNAL");
   } finally {
-    fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    if (ledgerDir) { fs.rm(ledgerDir, { recursive: true, force: true }).catch(() => {}); }
+    stopValidator(validator);
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(ledger, { recursive: true, force: true }).catch(() => {});
+    releaseOp();
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`[solshift] build service listening on port ${PORT}`);
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ error: "not found" });
 });
+
+app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
+  log.error("unhandled error", { error: err.message, requestId: (req as any).id });
+  if (res.headersSent) return;
+  sendError(res, 500, "internal server error");
+});
+
+const server = app.listen(config.port, () => {
+  log.info("compiler API listening", {
+    port: config.port,
+    env: config.nodeEnv,
+    corsOrigins: config.corsOrigins,
+    trustProxyHops: config.trustProxyHops,
+    localValidator: config.enableLocalValidator,
+  });
+});
+
+server.requestTimeout = 300_000;
+server.headersTimeout = 60_000;
+
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log.info("shutting down", { signal, activeBuilds: buildService.queueDepth });
+  server.close();
+  const deadline = Date.now() + 25_000;
+  while (buildService.queueDepth > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  log.info("shutdown complete", { remainingBuilds: buildService.queueDepth });
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("unhandledRejection", (reason) => {
+  log.error("unhandled rejection", { error: String(reason) });
+});
+process.on("uncaughtException", (err) => {
+  log.error("uncaught exception", { error: err.message });
+  void shutdown("uncaughtException");
+});
+
+void (async () => {
+  await faucetLedger.init();
+  await probeVersions();
+  log.info("startup complete", {
+    toolchain: versions,
+    faucetConfigured: Boolean(config.faucet.secretHex),
+    faucetAddress: faucetAddress || null,
+  });
+})();

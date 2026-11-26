@@ -250,13 +250,15 @@ Three wallet types:
 
 | Type | Secret Key | Deployment | Storage |
 |------|-----------|------------|---------|
-| Generated | Hex (64 bytes) | ✅ Backend signs | XOR-encrypted in localStorage |
-| Imported | Hex/JSON/Base58 | ✅ Backend signs | XOR-encrypted in localStorage |
+| Generated | Hex (64 bytes) | ✅ Backend signs | Public key in localStorage; secret in tab memory only |
+| Imported | Hex/JSON/Base58 | ✅ Backend signs | Public key in localStorage; secret in tab memory only |
 | Browser (Phantom etc.) | Not exposed | ❌ (no raw key) | Wallet adapter only |
 
-**Security:** Wallet keys are XOR-encrypted with a key derived from
-`sessionStorage` (ephemeral per-tab). On tab close, the encryption key is
-lost, making the stored ciphertext useless.
+**Security:** Secret keys are never written to persistent storage. Only the
+public key is saved (for balances/airdrops). The secret lives in React memory
+for the tab lifetime; reloading requires re-importing or re-generating.
+Legacy XOR-"encrypted" records are migrated away because XOR with a co-located
+key is reversible by any script on the origin. See `docs/SECURITY.md`.
 
 **Browser wallet detection** uses the wallet-standard protocol:
 1. Listens for `wallet-standard:app-ready` event
