@@ -62,7 +62,7 @@ const SOLANA_KNOWLEDGE: KnowledgeMatch[] = [
   { type: 'concept', label: 'Solana CLI Keypairs', description: 'Keypair file formats and management', details: 'JSON array of 64 bytes (Solana CLI format).\nAlso supports hex (128 chars) and base58.\nStored XOR-encrypted in localStorage.' },
   { type: 'concept', label: 'Program Upgrade Authority', description: 'Controls who can upgrade a deployed program', details: 'The deploying keypair owns the upgrade authority.\nThe Buffer account holds program data during upgrade.\nCan be transferred to another keypair.' },
   { type: 'concept', label: 'IDL (Interface Description Language)', description: 'JSON description of Anchor program interface', details: 'Auto-generated during build. Contains: instructions, accounts, types, errors.\nUsed by client SDKs to construct typed transactions.' },
-  { type: 'concept', label: 'Solana Devnet Faucet', description: 'Get free SOL for testing', details: 'URL: https://faucet.solana.com\nAlso via: solana airdrop command (up to 2 SOL per request).\nFaucet wallet: 3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR' },
+  { type: 'concept', label: 'Solana Devnet Faucet', description: 'Get free SOL for testing', details: 'URL: https://faucet.solana.com\nAlso via: solana airdrop command (up to 2 SOL per request).\nThe built-in faucet address is configured by the operator via VITE_FAUCET_ADDRESS.' },
 
   // ── Project Templates ──
   { type: 'template', label: 'Anchor Counter Template', description: 'Minimal Anchor program with initialize instruction', details: 'Contains: lib.rs with Initialize accounts struct.\nFramework: anchor. One instruction. No CPI targets.' },

@@ -14,6 +14,7 @@ import {
 import * as path from "node:path";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { BuildRequest, BuildResult, FileInput } from "./types";
+import { BuildQueue, InMemoryBuildQueue } from "./queue";
 import {
   ANCHOR_VERSION,
   RUST_VERSION,
@@ -294,18 +295,22 @@ function runAnchor(
 }
 
 export class SandboxedBuildService {
-  private activeBuilds = 0;
+  private readonly queue: BuildQueue;
   private readonly inflight = new Map<
     string,
     Promise<Omit<BuildArtifact, "cacheKey" | "durationMs">>
   >();
 
+  constructor(queue?: BuildQueue) {
+    this.queue = queue ?? new InMemoryBuildQueue(envInt("MAX_CONCURRENT_BUILDS", 2, 1, 32));
+  }
+
   public get queueDepth(): number {
-    return this.activeBuilds;
+    return this.queue.depth;
   }
 
   public get maxConcurrentBuilds(): number {
-    return envInt("MAX_CONCURRENT_BUILDS", 2, 1, 32);
+    return this.queue.max;
   }
 
   public get timeoutMs(): number {
@@ -355,7 +360,7 @@ export class SandboxedBuildService {
       entries,
       maxEntries: envInt("BUILD_CACHE_MAX_ENTRIES", 200, 1, 10_000),
       dir: this.cacheDir,
-      queueDepth: this.activeBuilds,
+      queueDepth: this.queue.depth,
     };
   }
 
@@ -410,19 +415,23 @@ export class SandboxedBuildService {
       return { ...hit, cached: true, programId };
     }
 
-    if (this.activeBuilds >= this.maxConcurrentBuilds) {
+    if (!this.queue.tryAcquire()) {
       throw new BuildQueueFullError(10);
     }
 
-    const artifact = await this.executeJob(input, programId, cacheKey);
-    return {
-      ...artifact,
-      cached: false,
-      programId,
-      programKeypairBase64: generatedKeypair
-        ? Buffer.from(generatedKeypair.secretKey).toString("base64")
-        : undefined,
-    };
+    try {
+      const artifact = await this.executeJob(input, programId, cacheKey);
+      return {
+        ...artifact,
+        cached: false,
+        programId,
+        programKeypairBase64: generatedKeypair
+          ? Buffer.from(generatedKeypair.secretKey).toString("base64")
+          : undefined,
+      };
+    } finally {
+      this.queue.release();
+    }
   }
 
   private async executeJob(
@@ -430,7 +439,6 @@ export class SandboxedBuildService {
     programId: string,
     cacheKey: string,
   ): Promise<Omit<BuildArtifact, "cacheKey" | "durationMs" | "cached">> {
-    this.activeBuilds++;
     const jobDir = path.join(this.workRoot, `${cacheKey.slice(0, 12)}-${randomUUID()}`);
     const homeDir = path.join(jobDir, "home");
     const cargoHome = path.join(jobDir, "cargo-home");
@@ -503,7 +511,6 @@ export class SandboxedBuildService {
         programId,
       };
     } finally {
-      this.activeBuilds--;
       await rm(jobDir, { recursive: true, force: true }).catch(() => {});
     }
   }

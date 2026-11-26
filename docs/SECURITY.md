@@ -130,6 +130,27 @@ anything that user can read (including `/var/lib/solphg/cache` and any secret
 mounted into that user's reach). Do not co-locate unrelated secrets with the
 build service.
 
+## Build cache operations
+
+The content-addressed cache lives at `BUILD_CACHE_DIR`
+(`/var/lib/solphg/cache` in both images). On Railway, mount a persistent volume
+there and cap it with `BUILD_CACHE_MAX_ENTRIES` (default 200 LRU entries) plus
+the volume's own size limit in the Railway dashboard. The cache is just a
+performance optimization: losing it only forces a rebuild.
+
+Cache keys include the source files, `programName`, the generated program ID,
+and `TOOLCHAIN_TAG`. To bust every cached artifact after a toolchain change,
+set `TOOLCHAIN_TAG` to a new value (for example
+`anchor-0.31.1-agave-2.2.7-rust-1.86.0-2026-11-26`) and redeploy. Old entries
+are evicted by the LRU bound; they can also be deleted manually from the volume.
+Program keypairs are generated per request and are never cached.
+
+The build concurrency gate is defined by the `BuildQueue` interface in
+`services/compiler/src/queue.ts`. The default `InMemoryBuildQueue` is
+process-local; a Redis/BullMQ implementation is **not** included, so running
+more than one API replica would multiply capacity and fragment the cache.
+Scale vertically until that implementation exists.
+
 ## Verification status
 
 Verified locally:

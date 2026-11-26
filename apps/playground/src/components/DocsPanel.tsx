@@ -1,5 +1,7 @@
 import React from 'react'
 
+const FAUCET_ADDRESS = ((import.meta as any)?.env?.VITE_FAUCET_ADDRESS as string | undefined)?.trim() || ''
+
 export function DocsPanel() {
   return (
     <div className="docs-panel">
@@ -14,7 +16,7 @@ export function DocsPanel() {
 
       <div className="docs-section">
         <h3>Fund the Faucet Wallet</h3>
-        <p>The app uses a pre-funded faucet wallet to send SOL without rate limits. When it runs low, refill it:</p>
+        <p>The app uses a pre-funded faucet wallet for fast airdrops. Requests are rate-limited and capped per address. When it runs low, refill it:</p>
         <ol>
           <li><strong>Get devnet SOL</strong> from any web faucet (different IP = fresh quota):<br />
             <a href="https://solfaucet.com" target="_blank" rel="noopener">solfaucet.com</a> &mdash; select Devnet, paste address<br />
@@ -22,10 +24,10 @@ export function DocsPanel() {
             <a href="https://faucet.quicknode.com/solana/devnet" target="_blank" rel="noopener">QuickNode Faucet</a> &mdash; connect Backpack wallet<br />
             <a href="https://faucet.solana.com" target="_blank" rel="noopener">Solana Faucet</a> &mdash; requires GitHub + small mainnet balance
           </li>
-          <li><strong>Send SOL</strong> to the faucet wallet address:<br />
-            <code>3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR</code>
+          <li><strong>Send SOL</strong> to the faucet wallet address (configured by the operator via <code>VITE_FAUCET_ADDRESS</code>):<br />
+            <code>{FAUCET_ADDRESS || 'Not configured'}</code>
           </li>
-          <li><strong>Wait</strong> &mdash; once the faucet has SOL, the airdrop works instantly with no rate limits.</li>
+          <li><strong>Wait</strong> &mdash; once the faucet has SOL, airdrops work instantly within the daily and per-address limits.</li>
         </ol>
       </div>
 
@@ -49,13 +51,15 @@ export function DocsPanel() {
         </ul>
       </div>
 
-      <div className="docs-section">
-        <h3>Faucet Address</h3>
-        <code className="docs-address">3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR</code>
-        <button className="btn btn-ghost btn-sm" style={{ marginTop: 6, fontSize: 11 }} onClick={() => navigator.clipboard.writeText('3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR')}>
-          Copy Address
-        </button>
-      </div>
+      {FAUCET_ADDRESS && (
+        <div className="docs-section">
+          <h3>Faucet Address</h3>
+          <code className="docs-address">{FAUCET_ADDRESS}</code>
+          <button className="btn btn-ghost btn-sm" style={{ marginTop: 6, fontSize: 11 }} onClick={() => navigator.clipboard.writeText(FAUCET_ADDRESS)}>
+            Copy Address
+          </button>
+        </div>
+      )}
     </div>
   )
 }
