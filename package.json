@@ -11,15 +11,20 @@
     "clean": "npm run --workspaces --if-present clean",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "test:integration:api": "node tests/integration/api.mjs",
+    "test:smoke:playground": "node tests/smoke/playground.mjs",
+    "build:wasm": "node scripts/build-stable-swap-wasm.mjs",
+    "playwright:install": "playwright install chromium"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@vitest/coverage-v8": "^2.1.0",
+    "@vitest/coverage-v8": "^4.1.12",
+    "playwright": "^1.65.1",
     "prettier": "^3.0.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.5.0",
-    "vitest": "^2.1.9"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "@solana/accounts": "^7.0.0",

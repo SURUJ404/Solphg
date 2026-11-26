@@ -136,7 +136,7 @@ solpg/
 ├── packages/
 │   ├── core/                 # Shared types + constants
 │   │   └── src/
-│   │       ├── wallet.ts        # Wallet storage (XOR encrypted)
+│   │       ├── wallet.ts        # Wallet storage (public key only; secrets stay in memory)
 │   │       └── constants.ts     # API URL, config
 │   ├── engine/               # API client library
 │   │   └── src/
@@ -350,7 +350,8 @@ Steps:
 ```
 Body: { address: string, amount?: number, cluster?: string }
 Strategy (tried in order):
-  1. Faucet transfer (if FAUCET_SECRET_KEY has SOL) — no rate limits
+  1. Faucet transfer (if FAUCET_SECRET_KEY has SOL) — per-IP rate limit,
+     per-address cooldown, and durable daily spending cap apply
   2. RPC requestAirdrop (shuffled pool, dual HTTP client per endpoint)
      - DEVNET_RPC_URL env var
      - api.devnet.solana.com
@@ -373,7 +374,7 @@ Strategy (tried in order):
 Shared types, constants, and wallet utilities.
 
 ```typescript
-// Wallet storage (XOR-encrypted with sessionStorage-derived key)
+// Wallet storage (public key persisted; secret kept in React memory only)
 loadWallet(): WalletState | null
 saveWallet(wallet: WalletState): void
 clearWallet(): void
@@ -383,7 +384,10 @@ COMPILER_API_URL = 'https://...'
 BUILD_LIMITS = { concurrent: 2, payload: '5mb' }
 ```
 
-**Security**: Wallet secret keys are XOR-encrypted with a key derived from `sessionStorage`, ensuring keys don't persist in `localStorage` as plaintext after tab close.
+**Security**: Wallet secret keys are never written to persistent storage. Only
+the public key is kept in `localStorage`; the secret lives in React memory for
+the tab lifetime. Legacy XOR-"encrypted" records are migrated away on load because
+XOR with a co-located key is reversible by any script on the origin.
 
 ### `@solshift/engine`
 
@@ -478,31 +482,41 @@ Project scaffolding and file management.
 
 | Setting | Value |
 |---|---|
-| Deploy Method | GitHub Actions (`.github/workflows/secrets.yml`) |
-| Trigger | Push to `main` |
+| Deploy Method | Manual (`railway up` / Railway dashboard); no deploy workflow exists today |
+| CI Trigger | Push/PR to `main` → build, test, publish builder image to GHCR |
 | Service Name | `solphg-api` |
-| Project | `soothing-emotion` (`43be8ae1-2376-42ad-9ece-f97e625a2bed`) |
-| Railway CLI | v5 (via npx) |
-| Auth | `RAILWAY_API_TOKEN` secret |
+| Project | Configured in Railway (no project ID in this repo) |
+| Dockerfile | `services/railway.Dockerfile` (non-root, from GHCR builder image) |
+| Auth | `RAILWAY_API_TOKEN` secret for manual CLI use |
+
+See `docs/RUNBOOK.md` for the full deploy, monitoring and rollback procedure.
 
 **Environment Variables:**
 
 | Variable | Type | Purpose |
 |---|---|---|
 | `PORT` | Public | Server port (8080) |
-| `DEVNET_RPC_URL` | Secret | Custom devnet RPC endpoint |
+| `NODE_ENV` | Public | `production` enables strict config validation |
+| `CORS_ORIGIN` | Public | Exact HTTPS origin allowlist (required in production) |
+| `TRUST_PROXY_HOPS` | Public | Proxy hops for real-IP rate limiting (>= 1 in production) |
+| `RATE_LIMIT_*`, `*_QUOTA_MAX` | Public | Per-IP rate limits and hourly quotas |
+| `BODY_LIMIT` | Public | Max JSON body (default 8mb, hard max 16mb) |
+| `BUILD_WORK_DIR` | Public | Executable tmpfs work dir (`/workspaces/build`) |
+| `BUILD_CACHE_DIR` | Public | Persistent content-addressed cache dir |
+| `DEVNET_RPC_URL` | Secret | Custom devnet RPC endpoint (https only) |
+| `MAINNET_RPC_URL` | Secret | Custom mainnet RPC endpoint (https only) |
 | `FAUCET_SECRET_KEY` | Secret | Faucet wallet private key (hex) |
-| `HELIUS_API_KEY` | Secret | Helius RPC API key for airdrop fallback |
+| `FAUCET_ADDRESS` | Public | Faucet public address (alternative to embedding a key) |
+| `FAUCET_STATE_FILE` | Public | Durable cap/cooldown ledger path |
+| `FAUCET_MAX_SOL_PER_REQUEST`, `FAUCET_DAILY_CAP_SOL`, `FAUCET_COOLDOWN_SECONDS` | Public | Faucet spend controls |
+| `ADMIN_TOKEN` | Secret | Optional faucet bootstrap auth (leave unset to disable) |
 | `MAX_CONCURRENT_BUILDS` | Public | Build queue limit (default 2) |
 
-**Deploy Workflow (`.github/workflows/secrets.yml`):**
-```yaml
-on: push → main
-steps:
-  - Checkout code
-  - Create .railway/railway.ts with project ID
-  - npx railway up --detach --yes --service solphg-api
-```
+See `services/compiler/.env.example` for the full validated list.
+
+**Frontend — Vercel:** build `apps/playground` with `VITE_COMPILER_API_URL` set
+to the API's HTTPS origin, then deploy `dist/`. There is no Vercel workflow in
+this repo. Run `npm run test:smoke:playground` after each deploy.
 
 ---
 
@@ -519,12 +533,14 @@ steps:
 ### Storage
 
 ```
-localStorage['solpg_wallet'] = XOR_encrypt(JSON.stringify(wallet), sessionKey)
+localStorage['solpg_wallet'] = { publicKey, connected, secretKey: '' }
 ```
 
-- Key derived from `sessionStorage` (per-tab, ephemeral)
-- Encrypted with XOR cipher
+- Only the public key is persisted (for balance/airdrop display)
+- Secret key lives in React memory for the lifetime of the tab
+- Re-import or re-generate a key after a page reload
 - Cleared on wallet disconnect
+- Legacy XOR-encrypted records are rewritten without the secret on load
 
 ### Browser Wallet Detection
 
@@ -566,10 +582,12 @@ Frontend receives error ──→ createSolanaRpc().requestAirdrop() from user's
 
 ### Faucet Transfer (Primary)
 
-Uses `solana transfer` from a pre-funded faucet wallet. This is a regular Solana transfer transaction — **no rate limits**.
+Uses `solana transfer` from a pre-funded faucet wallet. This is a regular Solana transfer transaction, but the endpoint is protected by a per-IP rate limit, a per-address cooldown, and a durable daily spending cap.
 
-- Requires `FAUCET_SECRET_KEY` environment variable (hex-encoded 64 bytes)
-- Faucet address: `3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR`
+- Requires `FAUCET_SECRET_KEY` environment variable (hex-encoded 64 bytes), or `FAUCET_ADDRESS` when a separate signer is used
+- Defaults: 2 SOL per request, 50 SOL daily cap, 1 hour per-address cooldown
+- Ledger state persists at `FAUCET_STATE_FILE` and survives restarts
+- Faucet address is derived from the key or set via `FAUCET_ADDRESS` (never hardcoded)
 - Fund via [solfaucet.com](https://solfaucet.com), [devnetfaucet.org](https://www.devnetfaucet.org), or [QuickNode faucet](https://faucet.quicknode.com/solana/devnet)
 
 ### RPC Fallback (Rate-Limited)
@@ -747,14 +765,18 @@ index.ts (server-side):                       │
 
 | Concern | Mitigation |
 |---|---|
-| **Wallet secret keys** | XOR-encrypted in localStorage, key from sessionStorage |
-| **API authentication** | Railway deployment uses RAILWAY_TOKEN (GitHub secret) |
-| **CORS** | Backend allows all origins (development service) |
-| **Payload limits** | 5MB JSON limit on Express |
-| **Build isolation** | Each build in unique /tmp directory, cleaned after |
-| **Docker isolation** | Containerized build environment |
-| **Faucet key** | Stored as Railway secret, not in code |
+| **Wallet secret keys** | Never persisted; public key only in localStorage, secret in tab memory |
+| **API authentication** | `ADMIN_TOKEN` via constant-time header comparison (bootstrap endpoint only) |
+| **CORS** | Exact-origin allowlist; no wildcards; HTTPS required in production |
+| **Payload limits** | `BODY_LIMIT` default 8MB (hard max 16MB), per-field byte caps |
+| **Build isolation** | Non-root `solbuilder`, unique per-job work dir, scrubbed env, no shell, process-group kill on timeout |
+| **Docker isolation** | Local Compose enforces read-only rootfs, cap_drop ALL, no-new-privileges, PID/mem/CPU limits, executable tmpfs; Railway cannot enforce Docker flags (see `docs/SECURITY.md`) |
+| **Rate limits / quotas** | Global + per-endpoint per-IP limiters plus hourly build/deploy quotas; `TRUST_PROXY_HOPS` validated |
+| **Faucet key** | Supplied via secret manager, never logged, spend cap + cooldown persisted across restarts |
+| **Logging** | Structured JSON with key redaction; no request bodies or key bytes logged |
 | **Frontend secrets** | API URL is public; no secrets in client bundle |
+
+See `docs/SECURITY.md` for the full control set and verification status.
 
 ---
 

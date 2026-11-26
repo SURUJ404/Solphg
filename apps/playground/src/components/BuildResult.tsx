@@ -1,4 +1,5 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
+import { generateClient } from '@solshift/integrations/idl-client'
 import { AccountVisualizer } from './AccountVisualizer.js'
 import { CpiDebugView, CpiLogParser } from './CpiDebugView.js'
 import { CuProfiler } from './CuProfiler.js'
@@ -9,6 +10,8 @@ interface BuildResultData {
   bytecodeSize?: number
   error?: string
   logs?: string
+  cached?: boolean
+  durationMs?: number
   timestamp: number
 }
 
@@ -51,10 +54,22 @@ interface Props {
   onProfile?: () => void
   isProfiling?: boolean
   profileData?: ProfileData | null
+  idl?: unknown
+  onCopyIdl?: () => void
 }
 
-export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecretKey, simulation, isSimulating, cluster, cpiTree, cpiProgramId, cpiRawLogs, cpiSummary, onDebugCpi, isDebuggingCpi, onProfile, isProfiling, profileData }: Props) {
+export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecretKey, simulation, isSimulating, cluster, cpiTree, cpiProgramId, cpiRawLogs, cpiSummary, onDebugCpi, isDebuggingCpi, onProfile, isProfiling, profileData, idl, onCopyIdl }: Props) {
   const [showVisualizer, setShowVisualizer] = useState(false)
+  const [showIdl, setShowIdl] = useState(false)
+  const [showClient, setShowClient] = useState(false)
+  const generatedClient = useMemo(() => {
+    if (idl === undefined || idl === null) return null
+    try {
+      return generateClient(idl)
+    } catch {
+      return null
+    }
+  }, [idl])
   if (!result) return null
 
   return (
@@ -77,6 +92,13 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
             <div className="build-result-row">
               <span className="build-result-label">Bytecode</span>
               <span className="build-result-value">{result.bytecodeSize ? `${(result.bytecodeSize / 1024).toFixed(1)} KB` : 'N/A'}</span>
+            </div>
+            <div className="build-result-row" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              <span className="build-result-label">Build</span>
+              <span className="build-result-value">
+                {result.cached ? 'Cache hit' : 'Fresh'}
+                {result.durationMs !== undefined ? ` · ${Math.round(result.durationMs)} ms` : ''}
+              </span>
             </div>
             <div className="build-result-row" style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               <span className="build-result-label">Cluster</span>
@@ -121,6 +143,16 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
                   {showVisualizer ? 'Hide Accounts' : 'View Accounts'}
                 </button>
               )}
+              {idl !== undefined && idl !== null && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowIdl(!showIdl)} style={{ fontSize: 11 }}>
+                  {showIdl ? 'Hide IDL' : 'View IDL'}
+                </button>
+              )}
+              {generatedClient && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowClient(!showClient)} style={{ fontSize: 11 }}>
+                  {showClient ? 'Hide Client' : 'Generate Client'}
+                </button>
+              )}
               {onDebugCpi && (
                 <button className="btn btn-ghost btn-sm" onClick={onDebugCpi} disabled={isDebuggingCpi} style={{ fontSize: 11 }}>
                   {isDebuggingCpi ? 'Tracing CPIs...' : 'Trace CPI'}
@@ -135,6 +167,35 @@ export function BuildResult({ result, onDeploy, onSimulate, hasWallet, hasSecret
 
             {showVisualizer && result.programId && (
               <AccountVisualizer programId={result.programId} cluster={cluster} />
+            )}
+
+            {showIdl && idl !== undefined && idl !== null && (
+              <div style={{ marginTop: 8 }}>
+                <pre style={{ maxHeight: 240, overflow: 'auto', fontSize: 11, background: 'var(--bg-surface)', padding: 8, borderRadius: 6 }}>
+                  {JSON.stringify(idl, null, 2)}
+                </pre>
+                {onCopyIdl && (
+                  <button className="btn btn-ghost btn-sm" onClick={onCopyIdl} style={{ fontSize: 11 }}>Copy IDL</button>
+                )}
+              </div>
+            )}
+
+            {showClient && generatedClient && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Typed client (Anchor 0.31) — supply account addresses at call time.
+                </div>
+                <pre data-testid="generated-client" style={{ maxHeight: 240, overflow: 'auto', fontSize: 11, background: 'var(--bg-surface)', padding: 8, borderRadius: 6 }}>
+                  {generatedClient}
+                </pre>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ fontSize: 11 }}
+                  onClick={() => navigator.clipboard.writeText(generatedClient).catch(() => {})}
+                >
+                  Copy Client
+                </button>
+              </div>
             )}
 
             {profileData && (

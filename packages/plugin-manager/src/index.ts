@@ -5,4 +5,5 @@ export {
   NATIVE_TEMPLATE,
   SPL_TRANSFER_TEMPLATE,
   COINFLIP_TEMPLATE,
+  STABLESWAP_TEMPLATE,
 } from './templates.js'

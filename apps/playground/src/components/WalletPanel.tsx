@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 
-const FAUCET_ADDRESS = '3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR'
+// Set by the operator at build time. Never commit a real faucet address.
+const FAUCET_ADDRESS = ((import.meta as any)?.env?.VITE_FAUCET_ADDRESS as string | undefined)?.trim() || ''
 
 interface BrowserWalletInfo {
   name: string
@@ -128,17 +129,19 @@ export function WalletPanel({ connected, publicKey, secretKey, balance, onConnec
           {isAirdropping ? 'Airdropping...' : 'AirDrop SOL'}
         </button>
       </div>
-      <div className="wallet-faucet-box">
-        Airdrop fallback: fund the faucet wallet at<br />
-        <span className="faucet-addr">{FAUCET_ADDRESS}</span>
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={() => navigator.clipboard.writeText(FAUCET_ADDRESS)}
-          style={{ fontSize: 10, marginTop: 4 }}
-        >
-          Copy Faucet Address
-        </button>
-      </div>
+      {FAUCET_ADDRESS && (
+        <div className="wallet-faucet-box">
+          Airdrop fallback: fund the faucet wallet at<br />
+          <span className="faucet-addr">{FAUCET_ADDRESS}</span>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => navigator.clipboard.writeText(FAUCET_ADDRESS)}
+            style={{ fontSize: 10, marginTop: 4 }}
+          >
+            Copy Faucet Address
+          </button>
+        </div>
+      )}
       {!isAdapter && (
         <div className="wallet-secret-section">
           <button

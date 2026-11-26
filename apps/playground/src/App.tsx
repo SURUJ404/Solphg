@@ -8,8 +8,9 @@ import { SearchPanel } from './components/SearchPanel.js'
 import { BuildResult } from './components/BuildResult.js'
 import { Toolbar } from './components/Toolbar.js'
 import { TemplatePicker } from './components/TemplatePicker.js'
+import { StableSwapQuote } from './components/StableSwapQuote.js'
 import { AccountVisualizer } from './components/AccountVisualizer.js'
-import { ProjectManager, ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE } from '@solshift/plugin-manager'
+import { ProjectManager, ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE, STABLESWAP_TEMPLATE } from '@solshift/plugin-manager'
 import { CompilerClient } from '@solshift/engine'
 import { TerminalEmulator } from '@solshift/shell'
 import { COMPILER_API_URL, CLUSTERS, getCluster } from '@solshift/core'
@@ -58,6 +59,15 @@ function BookIcon() {
   )
 }
 
+function CalculatorIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="2" width="16" height="20" rx="2" />
+      <path d="M8 6h8v4H8zM8 14h2M14 14h2M8 18h2M14 18h2" />
+    </svg>
+  )
+}
+
 export function App() {
   const [showLanding, setShowLanding] = useState(true)
   const [project, setProject] = useState<SolpgProject | null>(null)
@@ -69,7 +79,8 @@ export function App() {
   const [builtBytecode, setBuiltBytecode] = useState<string | null>(null)
   const [builtKeypair, setBuiltKeypair] = useState<string | undefined>(undefined)
   const [isBuilding, setIsBuilding] = useState(false)
-  const [buildResult, setBuildResult] = useState<{ success: boolean; programId?: string; bytecodeSize?: number; error?: string; logs?: string; timestamp: number } | null>(null)
+  const [buildResult, setBuildResult] = useState<{ success: boolean; programId?: string; bytecodeSize?: number; error?: string; logs?: string; cached?: boolean; durationMs?: number; timestamp: number } | null>(null)
+  const [builtIdl, setBuiltIdl] = useState<unknown>(null)
   const [apiConnected, setApiConnected] = useState<boolean | undefined>(undefined)
   const [activeSidebar, setActiveSidebar] = useState<string>('files')
   const [cluster, setCluster] = useState<string>(() => localStorage.getItem('solpg_cluster') || 'devnet')
@@ -105,20 +116,33 @@ export function App() {
 
     if (result.success) {
       const progId = result.programId ? `\nProgram ID: ${result.programId}` : ''
+      const cacheNote = result.cached ? '\nServed from build cache' : ''
+      const timing = result.durationMs !== undefined ? ` (${Math.round(result.durationMs)} ms)` : ''
       if (result.program) {
         setBuiltBytecode(result.program)
         setBuiltKeypair(result.programKeypair)
       }
+      if (result.idl !== undefined) setBuiltIdl(result.idl)
       const done: TerminalLine = {
         id: crypto.randomUUID(),
-        content: `Build complete.${progId}`,
+        content: `Build complete${timing}.${progId}${cacheNote}`,
         type: 'output',
       }
       setTerminalLines(prev => [...prev, done])
+      if (result.idl !== undefined) {
+        const idlLine: TerminalLine = {
+          id: crypto.randomUUID(),
+          content: `IDL generated. ${JSON.stringify(result.idl).length.toLocaleString()} bytes — available in the build result.`,
+          type: 'system',
+        }
+        setTerminalLines(prev => [...prev, idlLine])
+      }
       setBuildResult({
         success: true,
         programId: result.programId,
         bytecodeSize: result.program ? (result.program.length * 3 / 4) : undefined,
+        cached: result.cached,
+        durationMs: result.durationMs,
         timestamp: Date.now(),
       })
     } else {
@@ -174,14 +198,22 @@ export function App() {
       deploySecretKey = tempHex
     }
 
+    let confirmMainnet = false
     if (cluster === 'mainnet-beta') {
-      const confirmed = window.confirm('You are deploying to MAINNET. This costs real SOL. Continue?')
+      const cost = simulation?.estimatedRentSol !== undefined
+        ? `Estimated rent: ${simulation.estimatedRentSol.toFixed(4)} SOL. `
+        : 'Run "Simulate Deploy" first to see the exact cost. '
+      const authority = wallet.publicKey
+      const confirmed = window.confirm(
+        `MAINNET DEPLOY — this spends real SOL.\n\n${cost}Authority: ${authority}\n\nContinue?`,
+      )
       if (!confirmed) return
+      confirmMainnet = true
     }
 
     const msg: TerminalLine = { id: crypto.randomUUID(), content: `Deploying to ${cluster}...`, type: 'system' }
     setTerminalLines(prev => [...prev, msg])
-    const result = await compilerClient.deploy(builtBytecode, deploySecretKey, builtKeypair, cluster)
+    const result = await compilerClient.deploy(builtBytecode, deploySecretKey, builtKeypair, cluster, confirmMainnet)
     if (result.error) {
       const err: TerminalLine = { id: crypto.randomUUID(), content: `Deploy failed: ${result.error}`, type: 'error' }
       setTerminalLines(prev => [...prev, err])
@@ -189,7 +221,7 @@ export function App() {
       const done: TerminalLine = { id: crypto.randomUUID(), content: `Deploy tx: ${result.signature}`, type: 'output' }
       setTerminalLines(prev => [...prev, done])
     }
-  }, [builtBytecode, wallet, builtKeypair, cluster])
+  }, [builtBytecode, wallet, builtKeypair, cluster, simulation])
 
   const handleClusterChange = useCallback((name: string) => {
     setCluster(name)
@@ -301,7 +333,7 @@ export function App() {
         setTerminalLines(prev => [...prev, done])
         await fetchBalance(wallet.publicKey)
       } else {
-        const err: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop failed: ${result.error}\n\nFund the faucet wallet to restore instant airdrops:\n3LymxuUGBT67AXqNJQVkRtbvd7kpywyXoUhpDpob2rgR`, type: 'error' }
+        const err: TerminalLine = { id: crypto.randomUUID(), content: `Airdrop failed: ${result.error}\n\nThe faucet may be dry or rate-limited. Ask the operator to fund it, or use the public devnet faucet.`, type: 'error' }
         setTerminalLines(prev => [...prev, err])
       }
     }
@@ -540,6 +572,13 @@ export function App() {
           >
             <BookIcon />
           </button>
+          <button
+            className={`icon-btn ${activeSidebar === 'quote' ? 'active' : ''}`}
+            onClick={() => setActiveSidebar(activeSidebar === 'quote' ? '' : 'quote')}
+            title="StableSwap Quote"
+          >
+            <CalculatorIcon />
+          </button>
           <div className="icon-sidebar-spacer" />
           <div className="icon-sidebar-bottom">
             <button
@@ -554,7 +593,7 @@ export function App() {
         {activeSidebar && (
           <aside className="side-panel">
             <div className="side-panel-header">
-              {activeSidebar === 'files' ? 'Explorer' : activeSidebar === 'search' ? 'Search' : 'Settings'}
+              {activeSidebar === 'files' ? 'Explorer' : activeSidebar === 'search' ? 'Search' : activeSidebar === 'docs' ? 'Docs' : activeSidebar === 'quote' ? 'StableSwap Quote' : 'Settings'}
             </div>
             <div className="side-panel-content">
               {activeSidebar === 'files' ? (
@@ -595,6 +634,8 @@ export function App() {
                 <SearchPanel files={project?.files || []} onFileSelect={handleFileSelect} />
               ) : activeSidebar === 'docs' ? (
                 <DocsPanel />
+              ) : activeSidebar === 'quote' ? (
+                <StableSwapQuote />
               ) : (
                 <div style={{ padding: '12px', color: 'var(--text-muted)', fontSize: 12 }}>
                   Settings coming soon
@@ -623,6 +664,12 @@ export function App() {
             onProfile={builtBytecode ? handleProfile : undefined}
             isProfiling={isProfiling}
             profileData={profileData}
+            idl={builtIdl}
+            onCopyIdl={() => {
+              void navigator.clipboard.writeText(JSON.stringify(builtIdl, null, 2)).then(() => {
+                setTerminalLines(prev => [...prev, { id: crypto.randomUUID(), content: 'IDL copied to clipboard.', type: 'system' }])
+              }).catch(() => {})
+            }}
           />
           <TerminalPanel lines={terminalLines} onCommand={handleCommand} />
         </main>
@@ -631,7 +678,7 @@ export function App() {
         <TemplatePicker
           onSelect={(factory) => {
             const templates: Record<string, any> = {
-              ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE,
+              ANCHOR_TEMPLATE, SPL_TRANSFER_TEMPLATE, COINFLIP_TEMPLATE, NATIVE_TEMPLATE, STABLESWAP_TEMPLATE,
             }
             const t = templates[factory]
             if (t) handleSelectTemplate(t)

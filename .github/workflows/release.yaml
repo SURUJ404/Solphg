@@ -1,77 +1,69 @@
-name: Build and Release
+name: Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-    name: Build & Release
-    strategy:
-      matrix:
-        node: ['20.x']
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-
+  release:
+    name: Build and publish release
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: ${{ matrix.node }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
           cache: npm
 
       - run: npm ci
 
-      - name: Build all packages
+      - name: Install compiler API dependencies
+        working-directory: services/compiler
+        run: npm ci
+
+      - name: Build
         run: npm run build
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1.0.0
+      - name: Test
+        run: npx vitest run
+
+      - name: Package frontend
+        run: |
+          set -euo pipefail
+          cd apps/playground/dist
+          zip -r "$GITHUB_WORKSPACE/playground.zip" .
+
+      - name: Package compiler API
+        run: |
+          set -euo pipefail
+          cd services/compiler/dist
+          zip -r "$GITHUB_WORKSPACE/compiler-api.zip" .
+
+      - name: Create release with generated changelog
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Solphg $GITHUB_REF_NAME" \
+            --generate-notes \
+            playground.zip compiler-api.zip
 
-      - name: Zip frontend build
-        uses: thedoctor0/zip-release@master
-        with:
-          filename: 'playground.zip'
-          path: './apps/playground/dist'
-          exclusions: 'x'
-
-      - name: Upload frontend build
-        id: upload-playground
-        uses: actions/upload-release-asset@v1.0.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: playground.zip
-          asset_name: playground.zip
-          asset_content_type: application/zip
-
-      - name: Zip API build
-        uses: thedoctor0/zip-release@master
-        with:
-          filename: 'compiler-api.zip'
-          path: './services/compiler/dist'
-          exclusions: 'x'
-
-      - name: Upload API build
-        id: upload-api
-        uses: actions/upload-release-asset@v1.0.1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: compiler-api.zip
-          asset_name: compiler-api.zip
-          asset_content_type: application/zip
+      - name: Rollback instructions
+        run: |
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ## Rollback
+          - Frontend: promote the previous Vercel deployment (Vercel → Deployments → Promote).
+          - API image: redeploy the previous immutable tag
+            `ghcr.io/<owner>/solphg-builder:<previous-sha>` with
+            `railway redeploy --service solphg-api`.
+          - Cache: bump `TOOLCHAIN_TAG` and clear `/var/lib/solphg/cache`.
+          See docs/RUNBOOK.md.
+          EOF

@@ -9,6 +9,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./idl-client": {
+      "types": "./dist/idl-client.d.ts",
+      "import": "./dist/idl-client.js"
+    },
+    "./stable-swap": {
+      "types": "./dist/stable-swap.d.ts",
+      "import": "./dist/stable-swap.js"
+    },
+    "./stable-swap-wasm": {
+      "types": "./dist/stable-swap-wasm.d.ts",
+      "import": "./dist/stable-swap-wasm.js"
     }
   },
   "scripts": {
@@ -20,6 +32,6 @@
     "@solshift/core": "*"
   },
   "devDependencies": {
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.12"
   }
 }

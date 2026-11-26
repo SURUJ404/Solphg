@@ -11,3 +11,4 @@ coverage
 
 .vercel
 smoke-output/
+wasm/stable-swap/target/

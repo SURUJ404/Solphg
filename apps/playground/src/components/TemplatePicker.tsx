@@ -41,6 +41,14 @@ const TEMPLATES: (ProjectTemplate & { factory: string })[] = [
     features: ['PDAs', 'RNG from slot', 'SOL transfers', '4 instructions'],
     factory: 'COINFLIP_TEMPLATE',
   },
+  {
+    name: 'stableswap',
+    label: 'StableSwap AMM Pool',
+    description: 'Curve-style two-token stablecoin swap pool with dynamic fees and oracle guards',
+    difficulty: 'Advanced',
+    features: ['StableSwap invariant', '5 instructions', 'LP tokens'],
+    factory: 'STABLESWAP_TEMPLATE',
+  },
 ]
 
 interface Props {
